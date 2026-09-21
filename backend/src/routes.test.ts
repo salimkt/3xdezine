@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 
 import { buildApp } from './app.ts';
 import { closeDb, isDbReachable } from './db/client.ts';
-import { readSampleProject } from './shared.ts';
+import { readSampleProject, readSeedCatalog } from './shared.ts';
 import {
   CatalogSchema,
   CostBreakdownSchema,
@@ -30,6 +30,9 @@ const needsDb = dbUp
   : { skip: 'Postgres is not reachable on localhost:5433 — run `docker compose up -d`' };
 
 const sample = readSampleProject();
+/** The seed the database is loaded from — the reference for price-derived
+ *  assertions, so re-pricing the catalog never invalidates a test. */
+const catalog = readSeedCatalog();
 
 let app: FastifyInstance;
 before(async () => {
@@ -253,16 +256,31 @@ describe('catalog endpoints', needsDb, () => {
   });
 
   test('filters compose', async () => {
+    // The price cap is derived from the catalog at runtime rather than written
+    // down as a magic number, so a re-price (or a change of base currency)
+    // cannot turn this into a false failure.
+    const unfiltered = json(
+      await app.inject({ method: 'GET', url: '/api/materials?surface=WALL&tier=LUXURY' }),
+    );
+    assert.ok(unfiltered.length > 1, 'need a spread of LUXURY wall prices for maxPrice to bite');
+    const prices = unfiltered
+      .map((m: { pricePerUnit: number }) => m.pricePerUnit)
+      .sort((a: number, b: number) => a - b);
+    // The lower median is a price that exists in the set, so at least one
+    // material always survives the cap and at least one is always excluded.
+    const cap = prices[Math.floor((prices.length - 1) / 2)] as number;
+
     const res = await app.inject({
       method: 'GET',
-      url: '/api/materials?surface=WALL&tier=LUXURY&maxPrice=100',
+      url: `/api/materials?surface=WALL&tier=LUXURY&maxPrice=${cap}`,
     });
     const list = json(res);
     assert.ok(list.length > 0);
+    assert.ok(list.length < unfiltered.length, 'maxPrice must actually exclude something');
     for (const m of list) {
       assert.ok(m.applicableSurfaces.includes('WALL'));
       assert.equal(m.tier, 'LUXURY');
-      assert.ok(m.pricePerUnit <= 100);
+      assert.ok(m.pricePerUnit <= cap);
     }
   });
 
@@ -293,15 +311,52 @@ describe('POST /api/cost/estimate', needsDb, () => {
     assert.ok(parsed.success, JSON.stringify(parsed.error?.issues?.slice(0, 3)));
 
     const b = parsed.data;
-    assert.equal(b.currency, 'USD');
+    // The breakdown reports the project's own currency, whatever that is —
+    // asserting a literal here just re-breaks on the next re-pricing.
+    assert.equal(b.currency, sample.currency);
     assert.equal(b.quantities.floorAreaSqm, 80);
     assert.ok(b.lineItems.length > 0);
-    assert.equal(b.contingencyBuffer, 0.08);
+    assert.equal(b.contingencyBuffer, sample.contingencyBuffer);
+
+    // The arithmetic that actually has to hold, none of which depends on the
+    // magnitude of the price list.
     assert.ok(
       Math.abs(b.total - (b.materialsSubtotal + b.contingencyAmount)) < 0.01,
       'total must be subtotal plus contingency',
     );
-    assert.ok(b.total > 15_000 && b.total < 120_000, `implausible total ${b.total}`);
+    assert.ok(
+      Math.abs(b.contingencyAmount - b.materialsSubtotal * b.contingencyBuffer) < 0.01,
+      'the contingency is that fraction of the subtotal',
+    );
+    const summed = b.lineItems.reduce((s, i) => s + i.subtotal, 0);
+    assert.ok(Math.abs(b.materialsSubtotal - summed) < 0.01, 'the subtotal is the line items');
+    assert.ok(
+      Math.abs(Object.values(b.perSurface).reduce((s, v) => s + v, 0) - b.materialsSubtotal) < 0.01,
+      'the per-surface split must add back up to the subtotal',
+    );
+    assert.ok(b.total > 0);
+    for (const i of b.lineItems) {
+      assert.ok(
+        Math.abs(i.subtotal - i.bufferedQuantity * i.unitPrice) < 0.01,
+        `${i.materialId}: subtotal is buffered quantity times unit price`,
+      );
+    }
+
+    // Plausibility, expressed against the catalog instead of against a fixed
+    // band of money: the blended rate paid per m² must sit inside the range of
+    // per-m² prices the catalog actually offers.
+    const sqmPrices = catalog.materials
+      .filter((m) => m.unit === 'SQM')
+      .map((m) => m.pricePerUnit);
+    const sqmItems = b.lineItems.filter((i) => i.unit === 'SQM');
+    assert.ok(sqmItems.length > 0);
+    const blended =
+      sqmItems.reduce((s, i) => s + i.subtotal, 0) /
+      sqmItems.reduce((s, i) => s + i.bufferedQuantity, 0);
+    assert.ok(
+      blended >= Math.min(...sqmPrices) && blended <= Math.max(...sqmPrices),
+      `implausible blended rate ${blended} per m²`,
+    );
   });
 
   test('is pure: the same body twice gives byte-identical output', async () => {
@@ -317,8 +372,18 @@ describe('POST /api/cost/estimate', needsDb, () => {
     const paint = b.lineItems.find((i) => i.materialId === 'paint-warm-grey');
     assert.ok(paint, 'the sample paints its interior walls');
     assert.equal(paint.unit, 'LITER');
-    // Emulsion is seeded in 5 litre cans, so the order must be a multiple of 5.
-    assert.equal(paint.bufferedQuantity % 5, 0, `got ${paint.bufferedQuantity} litres`);
+    // Emulsion ships in whole cans, so the order must be a multiple of whatever
+    // the catalog says a can holds — read it back rather than assuming a size.
+    const seeded = MaterialSchema.parse(
+      json(await app.inject({ method: 'GET', url: '/api/materials/paint-warm-grey' })),
+    );
+    assert.ok(seeded.packSize && seeded.packSize > 0, 'emulsion is sold in cans');
+    assert.equal(
+      paint.bufferedQuantity % seeded.packSize,
+      0,
+      `got ${paint.bufferedQuantity} litres, not a multiple of the ${seeded.packSize} L can`,
+    );
+    assert.ok(paint.bufferedQuantity >= paint.rawQuantity, 'rounding is always up');
   });
 
   test('an empty project costs nothing', async () => {

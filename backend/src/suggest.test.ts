@@ -135,8 +135,13 @@ describe('aesthetic terms', () => {
 
 describe('cost efficiency', () => {
   test('effective price includes wastage', () => {
-    const tile = must('ceramic-tile-grey'); // 34.00 at 10% wastage
-    assert.ok(Math.abs(effectivePrice(tile) - 34 * 1.1) < 1e-9);
+    const tile = must('ceramic-tile-grey');
+    // The property is "shelf price scaled by the wastage allowance", whatever
+    // the price and the currency happen to be, so both come from the catalog.
+    assert.ok(tile.wastageFactor > 0, 'tile must carry a wastage allowance for this to mean much');
+    assert.ok(
+      Math.abs(effectivePrice(tile) - tile.pricePerUnit * (1 + tile.wastageFactor)) < 1e-9,
+    );
     assert.ok(effectivePrice(tile) > tile.pricePerUnit);
   });
 
@@ -170,7 +175,9 @@ describe('cost efficiency', () => {
   test('cheaper beats dearer at equal quality', () => {
     const stats = buildCategoryStats(catalog.materials);
     const cheap = { ...must('ceramic-tile-grey') };
-    const dear = { ...must('ceramic-tile-grey'), id: 'x', pricePerUnit: 160 };
+    // "Dearer" is defined relative to the material under test, not as a fixed
+    // amount of money that a re-price can overtake.
+    const dear = { ...cheap, id: 'x', pricePerUnit: cheap.pricePerUnit * 4 };
     assert.ok(costEfficiency(cheap, stats) > costEfficiency(dear, stats));
   });
 
@@ -193,16 +200,31 @@ describe('cost efficiency', () => {
     // This is the bug the category-wide population exists to prevent: a score
     // that changes because some *other* material was filtered out reads to a
     // user as the engine being broken.
-    const subway = must('subway-tile-white');
+    // Only a material that sits strictly *inside* its category's price range
+    // can demonstrate the sensitivity — one already at the range's floor is
+    // pinned there whatever else is dropped. Which material that is depends on
+    // the price list, so pick it at runtime instead of naming one.
+    const peersOf = (m: Material) => catalog.materials.filter((x) => x.category === m.category);
+    const subject = catalog.materials.find((m) => {
+      if (!m.applicableSurfaces.includes('WALL')) return false;
+      const peers = peersOf(m).map(effectiveCostPerSqm);
+      const eff = effectiveCostPerSqm(m);
+      return eff > Math.min(...peers) && eff < Math.max(...peers);
+    });
+    assert.ok(subject, 'the catalog needs a mid-priced WALL material for this test to say anything');
+
     const full = buildCategoryStats(catalog.materials);
-    // Marble is the dearest TILE. Dropping it collapses the category's price
-    // range, and a population-relative score therefore moves...
-    const withoutMarble = buildCategoryStats(
-      catalog.materials.filter((m) => m.id !== 'marble-carrara'),
+    // Dropping the dearest member of the subject's own category collapses that
+    // category's price range, and a population-relative score therefore moves...
+    const dearest = peersOf(subject).reduce((a, b) =>
+      effectiveCostPerSqm(b) > effectiveCostPerSqm(a) ? b : a,
+    );
+    const withoutDearest = buildCategoryStats(
+      catalog.materials.filter((m) => m.id !== dearest.id),
     );
     assert.notEqual(
-      costEfficiency(subway, full).toFixed(6),
-      costEfficiency(subway, withoutMarble).toFixed(6),
+      costEfficiency(subject, full).toFixed(6),
+      costEfficiency(subject, withoutDearest).toFixed(6),
       'the statistic really is population-sensitive, which is why scope matters',
     );
 
@@ -214,25 +236,49 @@ describe('cost efficiency', () => {
       limitPerSurface: 24,
     });
     const pick = (r: typeof narrow) =>
-      r.items.find((i) => i.surface === 'WALL' && i.materialId === 'subway-tile-white')!;
+      r.items.find((i) => i.surface === 'WALL' && i.materialId === subject.id)!;
     assert.equal(pick(narrow).breakdown.value, pick(wide).breakdown.value);
     assert.equal(pick(narrow).score, pick(wide).score);
-    assert.ok(Math.abs(pick(narrow).breakdown.value - costEfficiency(subway, full)) < 0.001);
+    assert.ok(Math.abs(pick(narrow).breakdown.value - costEfficiency(subject, full)) < 0.001);
   });
 
   test('paint is compared per square metre covered, not per litre', () => {
     // A litre of emulsion is nominally cheaper than a square metre of
     // anything, which makes the raw unit price meaningless across units.
-    const paint = must('paint-warm-grey'); // 11.00/L, 11 m²/L, 2 coats
-    assert.ok(Math.abs(unitsPerSqm(paint) - 2 / 11) < 1e-12);
-    assert.ok(Math.abs(effectiveCostPerSqm(paint) - 11 * 1.05 * (2 / 11)) < 1e-9);
-    assert.ok(effectiveCostPerSqm(paint) < 3, 'two coats of emulsion is a couple of dollars a m²');
+    const paint = must('paint-warm-grey');
+    const coats = paint.coatsRecommended!;
+    const coverage = paint.coveragePerUnit!;
+    assert.equal(paint.unit, 'LITER');
+    assert.ok(coats > 0 && coverage > 1, 'a litre of emulsion covers several m²');
+
+    // The conversion itself: litres per m² is coats over coverage, and it is
+    // emphatically not 1 — that is the whole point of the function existing.
+    assert.ok(Math.abs(unitsPerSqm(paint) - coats / coverage) < 1e-12);
+    assert.notEqual(unitsPerSqm(paint), 1, 'a litre is not a square metre');
+    assert.ok(
+      Math.abs(
+        effectiveCostPerSqm(paint) - effectivePrice(paint) * (coats / coverage),
+      ) < 1e-9,
+    );
+    // Because one litre goes a long way, the per-m² cost must come in well
+    // under the per-litre shelf price. Skipping the conversion inverts this.
+    assert.ok(effectiveCostPerSqm(paint) < effectivePrice(paint));
 
     // Anything already priced per m² is untouched.
     const tile = must('ceramic-tile-grey');
     assert.equal(unitsPerSqm(tile), 1);
     assert.equal(effectiveCostPerSqm(tile), effectivePrice(tile));
-    assert.ok(effectiveCostPerSqm(tile) > effectiveCostPerSqm(paint) * 10);
+
+    // And putting the two on a common basis WIDENS the gap between them: on
+    // raw unit prices a tile looks only a few times dearer than a litre of
+    // paint; per m² covered it is an order of magnitude dearer. Ranking on
+    // pricePerUnit alone gets every paint-versus-tile question backwards.
+    assert.ok(effectiveCostPerSqm(tile) > effectiveCostPerSqm(paint));
+    assert.ok(
+      effectiveCostPerSqm(tile) / effectiveCostPerSqm(paint) >
+        effectivePrice(tile) / effectivePrice(paint),
+      'converting to per-m² must widen the tile/paint gap, not preserve it',
+    );
   });
 });
 
@@ -394,7 +440,15 @@ describe('explainability', () => {
     const expected =
       effectiveCostPerSqm(must('paint-navy')) - effectiveCostPerSqm(must('paint-white-matte'));
     assert.ok(Math.abs(white.estimatedSavings! - expected) < 0.01);
-    assert.ok(white.estimatedSavings! < 2, 'a paint-to-paint saving is cents per m², not dollars');
+    // Quoting the per-litre gap would overstate the saving by the coverage
+    // factor. The reported figure must be the much smaller per-m² gap.
+    const perLitreGap =
+      effectivePrice(must('paint-navy')) - effectivePrice(must('paint-white-matte'));
+    assert.ok(perLitreGap > 0);
+    assert.ok(
+      white.estimatedSavings! < perLitreGap,
+      'a paint-to-paint saving is per m² covered, far less than the per-litre difference',
+    );
     assert.match(white.reason, /per m² covered/);
     // Tile is nominally "34 vs 14.50" but is in truth far dearer per m².
     const tile = r.items.find((i) => i.materialId === 'ceramic-tile-grey')!;
