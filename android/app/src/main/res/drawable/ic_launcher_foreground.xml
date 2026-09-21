@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A simple house outline on the 108dp adaptive-icon canvas (safe zone is the
+     central 72dp, i.e. roughly x/y 18..90). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#C8A165"
+        android:pathData="M54,30 L86,56 L78,56 L78,80 L60,80 L60,62 L48,62 L48,80 L30,80 L30,56 L22,56 Z" />
+    <path
+        android:fillColor="#F3F3F0"
+        android:pathData="M36,60 L46,60 L46,70 L36,70 Z" />
+</vector>

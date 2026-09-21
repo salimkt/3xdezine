@@ -1,0 +1,38 @@
+services:
+  db:
+    # Pinned exactly: 18.5 was never released (pulled for a packaging regression),
+    # so a floating `:18` tag is not safe to rely on. Trixie over Alpine — glibc
+    # avoids musl collation edge cases, and the Alpine image lacks io_uring.
+    image: postgres:18.6-trixie
+    container_name: dezine-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dezine
+      POSTGRES_PASSWORD: dezine
+      POSTGRES_DB: dezine
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command:
+      - postgres
+      # io_uring does not work in the official Postgres images
+      # (docker-library/postgres#1365), so pin the worker method explicitly
+      # rather than inheriting a default that may change.
+      - -c
+      - io_method=worker
+      - -c
+      - effective_io_concurrency=16
+    # Host 5433 deliberately avoids colliding with a local Postgres on 5432.
+    ports:
+      - "5433:5432"
+    # Mount the PARENT directory, not .../data. The postgres:18+ images store
+    # data in a version-specific subdirectory and abort on startup if you mount
+    # over /var/lib/postgresql/data directly — it crash-loops from first run.
+    volumes:
+      - dezine-pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dezine -d dezine"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  dezine-pgdata:

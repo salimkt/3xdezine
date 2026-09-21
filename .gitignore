@@ -1,0 +1,46 @@
+# dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# builds
+dist/
+build/
+out/
+.vite/
+*.tsbuildinfo
+
+# env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# editors / os
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.iml
+
+# Intermediate zips from scripts/fetch-assets.mjs. The extracted maps under
+# web/public/textures and web/public/hdri ARE committed — GitHub Pages cannot
+# serve Git LFS objects, and without them every surface renders as flat colour.
+assets/cache/
+
+# android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.cxx/
+android/captures/
+
+# misc
+coverage/
+.tmp/

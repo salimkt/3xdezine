@@ -1,0 +1,24 @@
+{
+  "name": "3xdezine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "House and interior design platform — 2D floor plan to photorealistic 3D, with live buffered material costing and material suggestions.",
+  "engines": {
+    "node": ">=22.12.0 <26"
+  },
+  "workspaces": [
+    "shared"
+  ],
+  "scripts": {
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:reset": "docker compose down -v && docker compose up -d",
+    "assets": "node scripts/fetch-assets.mjs --res 1K",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@dezine/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared domain contract and cost engine for the 3xDezine backend, web and Android clients.",
+  "exports": {
+    "./types": "./types.ts",
+    "./cost": "./cost.ts",
+    "./catalog.seed.json": "./catalog.seed.json",
+    "./sample-project.json": "./sample-project.json"
+  },
+  "scripts": {
+    "test": "tsx --test cost.test.ts",
+    "typecheck": "tsc --noEmit"
+  }
+}

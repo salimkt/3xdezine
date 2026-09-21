@@ -1,0 +1,297 @@
+{
+  "generatedAt": "2026-09-21T15:23:30.879Z",
+  "resolution": "1K",
+  "materials": {
+    "oak-hardwood": {
+      "source": "ambientCG",
+      "sourceId": "WoodFloor051",
+      "license": "CC0-1.0",
+      "tileSizeM": 1.2,
+      "maps": {
+        "color": "/textures/oak-hardwood/color.jpg",
+        "normal": "/textures/oak-hardwood/normal.jpg",
+        "roughness": "/textures/oak-hardwood/roughness.jpg",
+        "ao": "/textures/oak-hardwood/ao.jpg"
+      }
+    },
+    "laminate-oak": {
+      "source": "ambientCG",
+      "sourceId": "WoodFloor064",
+      "license": "CC0-1.0",
+      "tileSizeM": 1.2,
+      "maps": {
+        "color": "/textures/laminate-oak/color.jpg",
+        "normal": "/textures/laminate-oak/normal.jpg",
+        "roughness": "/textures/laminate-oak/roughness.jpg"
+      }
+    },
+    "bamboo-floor": {
+      "source": "ambientCG",
+      "sourceId": "WoodFloor070",
+      "license": "CC0-1.0",
+      "tileSizeM": 1.1,
+      "maps": {
+        "color": "/textures/bamboo-floor/color.jpg",
+        "normal": "/textures/bamboo-floor/normal.jpg",
+        "roughness": "/textures/bamboo-floor/roughness.jpg"
+      }
+    },
+    "polished-concrete": {
+      "source": "ambientCG",
+      "sourceId": "Concrete034",
+      "license": "CC0-1.0",
+      "tileSizeM": 2.5,
+      "maps": {
+        "color": "/textures/polished-concrete/color.jpg",
+        "normal": "/textures/polished-concrete/normal.jpg",
+        "roughness": "/textures/polished-concrete/roughness.jpg"
+      }
+    },
+    "ceramic-tile-grey": {
+      "source": "ambientCG",
+      "sourceId": "Tiles141",
+      "license": "CC0-1.0",
+      "tileSizeM": 0.6,
+      "maps": {
+        "color": "/textures/ceramic-tile-grey/color.jpg",
+        "normal": "/textures/ceramic-tile-grey/normal.jpg",
+        "roughness": "/textures/ceramic-tile-grey/roughness.jpg"
+      }
+    },
+    "marble-carrara": {
+      "source": "ambientCG",
+      "sourceId": "Marble012",
+      "license": "CC0-1.0",
+      "tileSizeM": 0.9,
+      "maps": {
+        "color": "/textures/marble-carrara/color.jpg",
+        "normal": "/textures/marble-carrara/normal.jpg",
+        "roughness": "/textures/marble-carrara/roughness.jpg"
+      }
+    },
+    "carpet-loop-beige": {
+      "source": "ambientCG",
+      "sourceId": "Carpet016",
+      "license": "CC0-1.0",
+      "tileSizeM": 0.8,
+      "maps": {
+        "color": "/textures/carpet-loop-beige/color.jpg",
+        "normal": "/textures/carpet-loop-beige/normal.jpg",
+        "roughness": "/textures/carpet-loop-beige/roughness.jpg",
+        "ao": "/textures/carpet-loop-beige/ao.jpg"
+      }
+    },
+    "paint-white-matte": {
+      "source": "ambientCG",
+      "sourceId": "PaintedPlaster017",
+      "license": "CC0-1.0",
+      "tileSizeM": 2,
+      "maps": {
+        "color": "/textures/paint-white-matte/color.jpg",
+        "normal": "/textures/paint-white-matte/normal.jpg",
+        "roughness": "/textures/paint-white-matte/roughness.jpg"
+      }
+    },
+    "paint-warm-grey": {
+      "source": "ambientCG",
+      "sourceId": "PaintedPlaster017",
+      "license": "CC0-1.0",
+      "tileSizeM": 2,
+      "maps": {
+        "color": "/textures/paint-warm-grey/color.jpg",
+        "normal": "/textures/paint-warm-grey/normal.jpg",
+        "roughness": "/textures/paint-warm-grey/roughness.jpg"
+      }
+    },
+    "paint-sage": {
+      "source": "ambientCG",
+      "sourceId": "PaintedPlaster017",
+      "license": "CC0-1.0",
+      "tileSizeM": 2,
+      "maps": {
+        "color": "/textures/paint-sage/color.jpg",
+        "normal": "/textures/paint-sage/normal.jpg",
+        "roughness": "/textures/paint-sage/roughness.jpg"
+      }
+    },
+    "paint-navy": {
+      "source": "ambientCG",
+      "sourceId": "PaintedPlaster017",
+      "license": "CC0-1.0",
+      "tileSizeM": 2,
+      "maps": {
+        "color": "/textures/paint-navy/color.jpg",
+        "normal": "/textures/paint-navy/normal.jpg",
+        "roughness": "/textures/paint-navy/roughness.jpg"
+      }
+    },
+    "venetian-plaster": {
+      "source": "ambientCG",
+      "sourceId": "PaintedPlaster017",
+      "license": "CC0-1.0",
+      "tileSizeM": 2.2,
+      "maps": {
+        "color": "/textures/venetian-plaster/color.jpg",
+        "normal": "/textures/venetian-plaster/normal.jpg",
+        "roughness": "/textures/venetian-plaster/roughness.jpg"
+      }
+    },
+    "subway-tile-white": {
+      "source": "ambientCG",
+      "sourceId": "Tiles139",
+      "license": "CC0-1.0",
+      "tileSizeM": 0.3,
+      "maps": {
+        "color": "/textures/subway-tile-white/color.jpg",
+        "normal": "/textures/subway-tile-white/normal.jpg",
+        "roughness": "/textures/subway-tile-white/roughness.jpg"
+      }
+    },
+    "wood-panel-walnut": {
+      "source": "ambientCG",
+      "sourceId": "WoodFloor040",
+      "license": "CC0-1.0",
+      "tileSizeM": 1,
+      "maps": {
+        "color": "/textures/wood-panel-walnut/color.jpg",
+        "normal": "/textures/wood-panel-walnut/normal.jpg",
+        "roughness": "/textures/wood-panel-walnut/roughness.jpg",
+        "ao": "/textures/wood-panel-walnut/ao.jpg"
+      }
+    },
+    "exposed-brick": {
+      "source": "ambientCG",
+      "sourceId": "Bricks104",
+      "license": "CC0-1.0",
+      "tileSizeM": 1.4,
+      "maps": {
+        "color": "/textures/exposed-brick/color.jpg",
+        "normal": "/textures/exposed-brick/normal.jpg",
+        "roughness": "/textures/exposed-brick/roughness.jpg",
+        "ao": "/textures/exposed-brick/ao.jpg"
+      }
+    },
+    "gypsum-ceiling": {
+      "source": "ambientCG",
+      "sourceId": "PaintedPlaster017",
+      "license": "CC0-1.0",
+      "tileSizeM": 2.5,
+      "maps": {
+        "color": "/textures/gypsum-ceiling/color.jpg",
+        "normal": "/textures/gypsum-ceiling/normal.jpg",
+        "roughness": "/textures/gypsum-ceiling/roughness.jpg"
+      }
+    },
+    "wood-plank-ceiling": {
+      "source": "ambientCG",
+      "sourceId": "WoodFloor043",
+      "license": "CC0-1.0",
+      "tileSizeM": 1.3,
+      "maps": {
+        "color": "/textures/wood-plank-ceiling/color.jpg",
+        "normal": "/textures/wood-plank-ceiling/normal.jpg",
+        "roughness": "/textures/wood-plank-ceiling/roughness.jpg",
+        "ao": "/textures/wood-plank-ceiling/ao.jpg"
+      }
+    },
+    "fiber-cement-siding": {
+      "source": "ambientCG",
+      "sourceId": "Concrete046",
+      "license": "CC0-1.0",
+      "tileSizeM": 0.3,
+      "maps": {
+        "color": "/textures/fiber-cement-siding/color.jpg",
+        "normal": "/textures/fiber-cement-siding/normal.jpg",
+        "roughness": "/textures/fiber-cement-siding/roughness.jpg"
+      }
+    },
+    "cedar-cladding": {
+      "source": "ambientCG",
+      "sourceId": "WoodSiding008",
+      "license": "CC0-1.0",
+      "tileSizeM": 1.2,
+      "maps": {
+        "color": "/textures/cedar-cladding/color.jpg",
+        "normal": "/textures/cedar-cladding/normal.jpg",
+        "roughness": "/textures/cedar-cladding/roughness.jpg",
+        "ao": "/textures/cedar-cladding/ao.jpg"
+      }
+    },
+    "stucco-white": {
+      "source": "ambientCG",
+      "sourceId": "Plaster001",
+      "license": "CC0-1.0",
+      "tileSizeM": 2,
+      "maps": {
+        "color": "/textures/stucco-white/color.jpg",
+        "normal": "/textures/stucco-white/normal.jpg",
+        "roughness": "/textures/stucco-white/roughness.jpg"
+      }
+    },
+    "brick-veneer-red": {
+      "source": "ambientCG",
+      "sourceId": "Bricks097",
+      "license": "CC0-1.0",
+      "tileSizeM": 1.4,
+      "maps": {
+        "color": "/textures/brick-veneer-red/color.jpg",
+        "normal": "/textures/brick-veneer-red/normal.jpg",
+        "roughness": "/textures/brick-veneer-red/roughness.jpg",
+        "ao": "/textures/brick-veneer-red/ao.jpg"
+      }
+    },
+    "asphalt-shingle": {
+      "source": "ambientCG",
+      "sourceId": "RoofingTiles013A",
+      "license": "CC0-1.0",
+      "tileSizeM": 1,
+      "maps": {
+        "color": "/textures/asphalt-shingle/color.jpg",
+        "normal": "/textures/asphalt-shingle/normal.jpg",
+        "roughness": "/textures/asphalt-shingle/roughness.jpg",
+        "ao": "/textures/asphalt-shingle/ao.jpg"
+      }
+    },
+    "clay-tile-roof": {
+      "source": "ambientCG",
+      "sourceId": "RoofingTiles014A",
+      "license": "CC0-1.0",
+      "tileSizeM": 0.5,
+      "maps": {
+        "color": "/textures/clay-tile-roof/color.jpg",
+        "normal": "/textures/clay-tile-roof/normal.jpg",
+        "roughness": "/textures/clay-tile-roof/roughness.jpg",
+        "ao": "/textures/clay-tile-roof/ao.jpg"
+      }
+    },
+    "metal-standing-seam": {
+      "source": "ambientCG",
+      "sourceId": "CorrugatedSteel009",
+      "license": "CC0-1.0",
+      "tileSizeM": 0.45,
+      "maps": {
+        "color": "/textures/metal-standing-seam/color.jpg",
+        "normal": "/textures/metal-standing-seam/normal.jpg",
+        "roughness": "/textures/metal-standing-seam/roughness.jpg",
+        "ao": "/textures/metal-standing-seam/ao.jpg"
+      }
+    }
+  },
+  "hdris": [
+    {
+      "id": "kloofendal_43d_clear_puresky",
+      "label": "Clear day (exterior)",
+      "url": "/hdri/kloofendal_43d_clear_puresky.hdr"
+    },
+    {
+      "id": "studio_small_09",
+      "label": "Neutral studio (material preview)",
+      "url": "/hdri/studio_small_09.hdr"
+    },
+    {
+      "id": "brown_photostudio_02",
+      "label": "Soft interior",
+      "url": "/hdri/brown_photostudio_02.hdr"
+    }
+  ]
+}
