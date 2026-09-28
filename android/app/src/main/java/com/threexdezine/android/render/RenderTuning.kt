@@ -19,7 +19,7 @@ import com.google.android.filament.View
  * All of it is wrapped so that a knob missing on a given Filament build degrades the
  * picture instead of crashing the app.
  *
- * TONE MAPPING: AgX, not Filament's default ACESLegacy. Interiors lit through windows
+ * TONE MAPPING: AgX (`ToneMapper.Agx`, lower-case x — that is the real class name), not Filament's default ACESLegacy. Interiors lit through windows
  * blow out the window highlights; AgX rolls those off gracefully where ACESLegacy
  * clips and desaturates. This matches the web client's `AgXToneMapping`.
  */
@@ -34,7 +34,10 @@ object RenderTuning {
         runCatching {
             // Soft, contact-hardening shadows. PCSS is the single biggest "this looks
             // rendered, not real-time" win indoors.
-            view.shadowType = View.ShadowType.PCSS
+            // Verified against filament-android 1.72.1 sources: View exposes
+            // setShadowType(ShadowType) with NO matching getter, so Kotlin synthesises no
+            // `shadowType` property. It has to be the setter call.
+            view.setShadowType(View.ShadowType.PCSS)
         }.onFailure { Log.w(TAG, "PCSS shadows unavailable", it) }
 
         runCatching {
@@ -68,7 +71,7 @@ object RenderTuning {
 
         return runCatching {
             val grading = ColorGrading.Builder()
-                .toneMapper(ToneMapper.AgX())
+                .toneMapper(ToneMapper.Agx())
                 .build(engine)
             view.colorGrading = grading
             grading

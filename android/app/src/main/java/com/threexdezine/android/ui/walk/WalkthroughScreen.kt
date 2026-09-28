@@ -47,6 +47,7 @@ import com.threexdezine.android.render.RenderTuning
 import com.threexdezine.android.render.SceneController
 import com.threexdezine.android.ui.formatMoney
 import io.github.sceneview.SceneView
+import io.github.sceneview.environment.Environment
 import io.github.sceneview.rememberCameraNode
 import io.github.sceneview.rememberEngine
 import io.github.sceneview.rememberEnvironmentLoader
@@ -73,7 +74,7 @@ import kotlinx.coroutines.isActive
  *
  * RENDER-ON-DEMAND: SceneView 4.38.0 does not render every vsync. Any mutation — a
  * material swap, a texture landing, a camera step — must be followed by
- * `renderInvalidator()`. `onFrame` cannot keep the loop awake, so continuous movement
+ * `renderInvalidator.requestRender()`. `onFrame` cannot keep the loop awake, so continuous movement
  * is driven from a `withFrameNanos` loop that invalidates each step, and that loop only
  * runs while the joystick is actually deflected.
  *
@@ -104,6 +105,11 @@ fun WalkthroughScreen(
     val materialLoader = rememberMaterialLoader(engine)
     val environmentLoader = rememberEnvironmentLoader(engine)
     val renderInvalidator = rememberRenderInvalidator()
+    // SceneView pushes whatever `environment` it is given onto the Filament Scene from a
+    // LaunchedEffect(scene, environment), so writing indirectLight/skybox onto the Scene by
+    // hand would race the default (empty) environment and could be clobbered. The loaded
+    // Environment is therefore held in state and handed to SceneView instead.
+    var environment by remember { mutableStateOf(Environment()) }
 
     val startPose = remember(project.id) { HouseBuilder.suggestedStart(project) }
     val rig = remember(project.id) {
@@ -140,24 +146,19 @@ fun WalkthroughScreen(
     // --- Filament View tuning. Owns the ColorGrading it creates. -----------------
     DisposableEffect(view) {
         val grading = RenderTuning.apply(engine, view)
-        renderInvalidator()
+        renderInvalidator.requestRender()
         onDispose { RenderTuning.dispose(engine, view, grading) }
     }
 
     // --- Image-based lighting. Blocks the loading overlay because it hitches. -----
     LaunchedEffect(engine) {
         syncCamera()
-        val environment = runCatching {
+        val loaded = runCatching {
             environmentLoader.createHDREnvironment(assetFileLocation = BundledAssets.HDRI_FILE)
         }.getOrNull()
-        if (environment != null) {
-            runCatching {
-                filamentScene.indirectLight = environment.indirectLight
-                filamentScene.skybox = environment.skybox
-            }
-        }
+        if (loaded != null) environment = loaded
         environmentReady = true
-        renderInvalidator()
+        renderInvalidator.requestRender()
     }
 
     // --- Geometry, materials, then textures, in that order. ----------------------
@@ -172,10 +173,10 @@ fun WalkthroughScreen(
         }
         sceneReady = true
         syncCamera()
-        renderInvalidator()
+        renderInvalidator.requestRender()
         // Textures stream in afterwards; each one that lands invalidates on its own so
         // the picture sharpens progressively instead of waiting for the whole set.
-        controller.loadTextures(project, catalog) { renderInvalidator() }
+        controller.loadTextures(project, catalog) { renderInvalidator.requestRender() }
     }
 
     // --- Continuous movement. Only runs while the stick is deflected. ------------
@@ -192,7 +193,7 @@ fun WalkthroughScreen(
                 previous = now
             }
             syncCamera()
-            renderInvalidator()
+            renderInvalidator.requestRender()
         }
     }
 
@@ -209,7 +210,7 @@ fun WalkthroughScreen(
                         change.consume()
                         rig.look(dragAmount.x, dragAmount.y)
                         syncCamera()
-                        renderInvalidator()
+                        renderInvalidator.requestRender()
                     }
                 },
             engine = engine,
@@ -218,6 +219,11 @@ fun WalkthroughScreen(
             scene = filamentScene,
             materialLoader = materialLoader,
             environmentLoader = environmentLoader,
+            environment = environment,
+            // Without this the invalidator is never attached to the view's frame gate and
+            // every requestRender() above is silently dropped: SceneView 4.38.0 is
+            // render-on-demand by default.
+            renderInvalidator = renderInvalidator,
             cameraNode = cameraNode,
             // null: the walkthrough camera is driven by CameraRig, and Filament's
             // orbit Manipulator would fight it for control of the transform.
@@ -234,7 +240,7 @@ fun WalkthroughScreen(
                 rig.teleport(x, z)
                 rig.faceTowards(lookX, lookZ)
                 syncCamera()
-                renderInvalidator()
+                renderInvalidator.requestRender()
             },
         )
 
@@ -244,7 +250,7 @@ fun WalkthroughScreen(
             onRise = { delta ->
                 rig.raise(delta)
                 syncCamera()
-                renderInvalidator()
+                renderInvalidator.requestRender()
             },
             onMaterials = { showMaterials = true },
             onCost = { showCost = true },
