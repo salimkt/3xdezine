@@ -4,15 +4,18 @@ Kotlin + Jetpack Compose + SceneView/Filament client for the 3xDezine house-desi
 platform. Project list → photorealistic 3D walkthrough, with a material browser that
 applies finishes live and a cost panel driven by `POST /api/cost/estimate`.
 
-> ## ⚠️ READ THIS FIRST — THIS CODE HAS NEVER BEEN COMPILED
+> ## ⚠️ READ THIS FIRST — THIS COMPILES, BUT IT HAS NEVER RUN
 >
-> It was written on a machine with **no JDK and no Android SDK**. Every file has been
-> re-read and cross-checked by hand, but *nothing here has been through a compiler, a
-> linker, an emulator or a device.* Do not treat "it is written" as "it builds".
+> As of the CI run that produced release tag `android-latest`, `:app:assembleDebug`
+> **succeeds** and publishes a ~40 MB debug APK. Every API this code calls therefore
+> resolves against SceneView 4.38.0 / Filament 1.72.1 / AGP 9.4.1 / Kotlin 2.4.20.
 >
-> The section [Unverified — needs a real build](#unverified--needs-a-real-build) lists
-> every API call that could not be checked, ranked by how likely it is to break, with
-> the fix for each. Expect to spend a session getting a first green build.
+> **Nothing here has ever been on a device or an emulator.** Not one frame has been
+> rendered, not one HTTP call made, not one material applied. Compiling is not working.
+> [Unverified — needs a real device](#unverified--needs-a-real-device) is the honest
+> list of what is still unknown, and it is long.
+>
+> There is also still no Gradle wrapper in the repo — CI provisions Gradle itself.
 
 ---
 
@@ -29,6 +32,19 @@ applies finishes live and a cost panel driven by `POST /api/cost/estimate`.
 | compileSdk / targetSdk / minSdk | 37 / 36 / 26 |
 | Compose BOM | 2026.09.00 (→ material3 1.4.0) |
 | SceneView | 4.38.0 (brings **Filament 1.72.1** transitively) |
+
+### CI is the reference build
+
+`.github/workflows/android.yml` builds `:app:assembleDebug` on `ubuntu-latest` with
+JDK 21, a provisioned Gradle 9.7.1 and the runner's preinstalled Android SDK, then
+publishes the APK to the rolling release tag `android-latest`:
+
+<https://github.com/salimkt/3xdezine/releases/download/android-latest/3xdezine.apk>
+
+Note on `compileSdk = 37`: `sdkmanager "platforms;android-37"` does **not** resolve —
+the published packages are `android-37.0`, `android-37.1`, `android-37.2`. The runner
+already ships them, so the build works; do not "fix" the workflow by pinning
+`platforms;android-37`.
 
 ### The Gradle wrapper JAR is missing
 
@@ -220,7 +236,9 @@ apply it **first** and call `RenderTuning.apply` afterwards in the same effect.
 ### Render-on-demand
 
 SceneView 4.38.0 renders on demand. Every mutation — material swap, texture landing,
-camera step — is followed by `renderInvalidator()`. `onFrame` cannot keep the loop awake,
+camera step — is followed by `renderInvalidator.requestRender()`, and the invalidator is
+passed to `SceneView(renderInvalidator = ...)` — without that it is never attached to the
+view's frame gate and every request is silently dropped. `onFrame` cannot keep the loop awake,
 so continuous movement runs from a `withFrameNanos` loop that invalidates each step, and
 that loop only spins while the thumb-stick is deflected.
 
@@ -230,6 +248,11 @@ that loop only spins while the thumb-stick is deflected.
 visibly stall. A loading overlay stays up until it returns. The bundled
 `assets/hdri/environment.hdr` is the smallest of the three in `web/public/hdri/`
 (`kloofendal_43d_clear_puresky.hdr`, 4.6 MB, CC0 from Poly Haven).
+
+The loaded `Environment` is held in Compose state and handed to
+`SceneView(environment = ...)` rather than written onto the Filament `Scene` directly:
+SceneView pushes its own `environment` parameter onto the scene, so a manual assignment
+races the default empty one.
 
 ### Filament is never declared as a dependency
 
@@ -260,77 +283,93 @@ bumps it.**
 
 ---
 
-## Unverified — needs a real build
+## Verified by the build
 
-Everything below is an API this code calls that **could not be checked**. Grouped by
-risk. If the first build fails, start at the top.
+`:app:assembleDebug` is green, so every API call in this module resolves and type-checks
+against the real artifacts. Getting there took four corrections, all in the render path.
+Each was checked against the published sources (`sceneview-4.38.0-sources.jar`,
+`sceneview-core-4.38.0-sources.jar`, `filament-android-1.72.1-sources.jar`) rather than
+guessed:
 
-### High risk — SceneView 4.38.0 Compose API surface
+| Was | Actually is |
+|---|---|
+| `view.shadowType = View.ShadowType.PCSS` | Filament's `View` has `setShadowType(ShadowType)` and **no getter**, so Kotlin synthesises no property. Must be `view.setShadowType(View.ShadowType.PCSS)`. PCSS itself is fine and is still what we use. |
+| `ToneMapper.AgX()` | The class is `ToneMapper.Agx` — lower-case `x`. The no-arg constructor exists (`AgxLook.NONE`). |
+| `renderInvalidator()` | `rememberRenderInvalidator()` returns a `RenderInvalidator` **object**, not a function. Invalidate with `renderInvalidator.requestRender()`. |
+| invalidator not passed to `SceneView` | `SceneView(renderInvalidator = ...)` is what attaches it to the frame gate. Without it every `requestRender()` is dropped and, because 4.38.0 defaults to `FrameRatePolicy.OnDemand`, the picture would have frozen after the first frame. This would have compiled and silently misbehaved. |
 
-All in `ui/walk/WalkthroughScreen.kt`, all in one screen on purpose so a fix is local.
+One further correction, made for correctness rather than to compile: the HDR environment
+is now handed to `SceneView(environment = ...)` instead of being written onto the Filament
+`Scene` by hand. SceneView pushes its own `environment` parameter onto the scene from a
+`LaunchedEffect(scene, environment)`, so the manual assignment was racing the default
+empty environment and could have been clobbered.
 
-| Call | Risk | If it fails |
-|---|---|---|
-| `io.github.sceneview.SceneView(...)` as a **composable** | The brief says `SceneView` is the current composable name and `Scene` is a deprecated alias. There is also an Android `View` class called `io.github.sceneview.SceneView`, so the name may resolve to the constructor instead. | Change the import and call to `io.github.sceneview.Scene(...)`. Same parameters. |
-| Named parameters `engine`, `view`, `renderer`, `scene`, `materialLoader`, `environmentLoader`, `cameraNode`, `cameraManipulator` | Named args were used precisely so a positional reshuffle cannot silently misbind — but a *renamed* parameter is a compile error. | Check the composable's signature and rename. Every other parameter is left at its default. |
-| `rememberEngine()`, `rememberView()`, `rememberRenderer()`, `rememberScene()`, `rememberMaterialLoader()`, `rememberEnvironmentLoader()`, `rememberCameraNode(engine)` | Standard SceneView Compose remembers, but arities are from memory. | Match the real signatures. |
-| `rememberRenderInvalidator()` returning something invocable as `renderInvalidator()` | Named in the brief; the return type is a guess. | If it returns an object, call its method instead. **Do not delete these calls** — without them, render-on-demand means nothing updates. |
-| `cameraNode.position = Float3` and `cameraNode.quaternion = Quaternion` | SceneView `Node` property names. | If `transform: Mat4` is the only writable property, build the matrix from `CameraRig` (it already exposes position + quaternion). |
-| `environmentLoader.createHDREnvironment(assetFileLocation = "hdri/environment.hdr")` | Parameter name and return shape (`.indirectLight`, `.skybox`). | The brief also names `rememberHDREnvironment`. Wrapped in `runCatching`, so a *runtime* failure only loses IBL — but a signature mismatch is still a compile error. |
-| `materialLoader.createColorInstance(color =, metallic =, roughness =, reflectance =)` in `render/MaterialFactory.kt` | Parameter names are from memory. | Check `MaterialLoader`'s signature. This is the only SceneView call in the whole render layer. |
-| `io.github.sceneview.math.Color` used as `Color(r, g, b, a)` | Assumed to be a typealias for `Float4`. | Substitute whatever `createColorInstance` actually takes. |
+Everything the previous revision of this file listed as "medium risk Filament Java API
+details" — the `View.*Options` classes and their `enabled` fields, `Texture.Builder`,
+`TextureHelper.setBitmap(engine, texture, level, bitmap)`, the three-arg `TextureSampler`,
+`Texture.InternalFormat.SRGB8_A8`, the `VertexBuffer`/`IndexBuffer`/`RenderableManager`
+builders, `setMaterialInstanceAt` — is correct as written. So are the SceneView Compose
+remembers, `materialLoader.createColorInstance(color =, metallic =, roughness =,
+reflectance =)`, `io.github.sceneview.math.Color` (it is a `typealias` for `Float4`),
+`cameraNode.position` / `.quaternion`, and
+`environmentLoader.createHDREnvironment(assetFileLocation = ...)`.
 
-### Medium risk — Filament Java API details
+**Nothing was degraded.** PCSS shadows, SSR, TAA, SSAO, bloom, AgX tone mapping and the
+full texture/PBR path are all still in.
 
-| Call | Where | Note |
-|---|---|---|
-| `View.ScreenSpaceReflectionsOptions()`, `TemporalAntiAliasingOptions()`, `AmbientOcclusionOptions()`, `BloomOptions()` and their `enabled` fields | `RenderTuning.kt` | Each is individually wrapped in `runCatching`, so a *runtime* problem degrades the picture. A missing **class** is still a compile error. |
-| `view.shadowType = View.ShadowType.PCSS` | `RenderTuning.kt` | PCSS exists in Filament 1.72; the enum's exact location is the assumption. |
-| `ToneMapper.AgX()` no-arg constructor | `RenderTuning.kt` | May require an `AgxLook` argument. |
-| `view.colorGrading = null` in `dispose` | `RenderTuning.kt` | Assumes the setter is `@Nullable`. If not, drop the line — destroying the ColorGrading is the part that matters. |
-| `vertexBuffer.setBufferAt(engine, i, ByteBuffer)` and `indexBuffer.setBuffer(engine, ByteBuffer)` | `FilamentMesh.kt` | Direct `ByteBuffer`s in native order. Overload selection is the assumption. |
-| `RenderableManager.Builder(1).boundingBox(...).geometry(...).material(...).castShadows(...).receiveShadows(...).culling(...)` | `FilamentMesh.kt` | Builder method names. |
-| `TextureHelper.setBitmap(engine, texture, 0, bitmap)` from `com.google.android.filament.android` | `MaterialFactory.kt` | Argument order is the assumption. |
-| `TextureSampler(MinFilter, MagFilter, WrapMode)` three-arg constructor | `MaterialFactory.kt` | |
-| `Texture.InternalFormat.SRGB8_A8` / `RGBA8` | `MaterialFactory.kt` | |
-| `engine.renderableManager.setMaterialInstanceAt(instance, 0, mi)` | `FilamentMesh.kt` | |
+---
 
-### Lower risk — but unproven all the same
+## Unverified — needs a real device
 
-- **The whole texture pipeline.** Which sampler parameters SceneView's precompiled
-  `.filamat` ubershaders actually expose is unknown, so `MaterialFactory` *probes*
-  candidate names (`baseColorMap`, `baseColorTexture`, `albedoMap`, …) via Filament's
-  stable `Material.hasParameter`. **If none match, materials render as flat colour + PBR
-  constants and the app still works** — ARCHITECTURE.md sanctions exactly that
-  degradation. But it means *PBR maps may simply never appear on a first run.* The real
-  fix, if so, is to source the material instance from gltfio's ubershader (load a
-  minimal glTF via SceneView's `ModelLoader` and clone its `MaterialInstance`) rather
-  than from `MaterialLoader.createColorInstance`.
-- **Winding and normal directions.** Every quad's winding was derived by hand from
-  cross products and the derivations are written out in comments at each call site, but
-  nobody has *seen* the scene. If surfaces are invisible from inside the house, a face
-  is wound backwards.
+Nobody has run this. The build proves the code *resolves*; it proves nothing about what
+appears on screen. In rough order of how likely each is to bite:
+
+- **Whether anything renders at all.** The Engine/View/Renderer/Scene wiring, the
+  surface lifecycle, and the interaction between our directly-created Filament entities
+  and SceneView's own scene management are all untested.
+- **Render-on-demand coverage.** Every mutation site we know about calls
+  `renderInvalidator.requestRender()`. A missed one shows up as a frozen or stale
+  picture, not as an error. If the scene looks stuck, the diagnostic is to switch to
+  `SceneView(frameRatePolicy = FrameRatePolicy.Continuous())` — if that fixes it, an
+  invalidation is missing, not the renderer.
+- **The whole texture pipeline.** `MaterialFactory` *probes* sampler parameter names
+  (`baseColorMap`, `baseColorTexture`, `albedoMap`, …) against
+  `Material.hasParameter`, because which parameters SceneView's precompiled `.filamat`
+  ubershaders expose is a runtime fact. If none match, materials render as flat colour +
+  PBR constants and the app still works — but **PBR maps may simply never appear.** The
+  fix, if so, is to source the instance from gltfio's ubershader (load a minimal glTF via
+  `ModelLoader` and clone its `MaterialInstance`) rather than from
+  `MaterialLoader.createColorInstance`.
+- **Winding and normal directions.** Every quad's winding was derived by hand from cross
+  products, with the derivation written out at each call site, but nobody has *seen* the
+  scene. If surfaces are invisible from inside the house, a face is wound backwards.
+- **Tangents.** `MeshBuilder` packs the TANGENTS quaternion following Filament's
+  `packTangentFrame` convention. Wrong handedness shows up only as normal maps lighting
+  from the wrong direction, which needs an eye on a device to spot.
 - **Opening positions.** `t` is interpreted as 0..1 along the wall to the opening's
-  *centre*, per the contract. Visual check needed.
-- **The interior/exterior face probe** in `HouseBuilder.buildWalls` tests a point
-  0.12 m outside each wall face against the room polygons. Untested on plans where
-  rooms do not tile the footprint.
-- **`LocalCostEngine` totals** have not been checked against `shared/cost.test.ts` or
-  the backend. Two documented approximations (roof footprint as the sum of room areas;
+  *centre*. Visual check needed.
+- **The interior/exterior face probe** in `HouseBuilder.buildWalls` tests a point 0.12 m
+  outside each wall face against the room polygons. Untested on plans where rooms do not
+  tile the footprint.
+- **The IBL hitch.** `createHDREnvironment` decodes and prefilters on the calling thread.
+  How long the loading overlay actually sits there is unmeasured.
+- **Native lifetime.** Every Filament resource this app creates is freed from a
+  `DisposableEffect`. Double-frees and use-after-free in Filament are native crashes, not
+  exceptions; rotating the device and backing out of the walkthrough is the test.
+- **Texture memory.** 1K downsampling plus a 16-entry LRU is a guess at a budget, not a
+  measurement.
+- **Every network path.** No REST call has ever been made from this app. The offline
+  fallback to the bundled assets has never been exercised either.
+- **`LocalCostEngine` totals** have not been checked against `shared/cost.test.ts` or the
+  backend. Two documented approximations (roof footprint as the sum of room areas;
   overhang allowance as exterior-wall length × overhangM) may put it a few percent off.
-  The backend is authoritative and this is labelled "offline estimate" in the UI.
-- **Retrofit converter import**:
-  `retrofit2.converter.kotlinx.serialization.asConverterFactory` with a `MediaType`
-  argument. Retrofit 3 may expose a no-arg overload instead.
-- **`okhttp3.Response.body`** is treated as nullable (`?.bytes()`). In OkHttp 5 it is
-  non-null, which makes that a warning, not an error.
-- **R8 / release build.** `proguard-rules.pro` keeps Filament, SceneView,
-  kotlinx-serialization and Retrofit, but only a real `assembleRelease` proves it.
-- **Configuration cache** is on in `gradle.properties`. If AGP 9 + SceneView disagree
-  with it, set `org.gradle.configuration-cache=false`.
-- **`androidResources { noCompress += ... }`** — the DSL property name on AGP 9.
-- **No tests.** `LocalCostEngine`, `Triangulator` and `CameraRig` are all pure and were
-  written to be unit-testable; there is no test source set yet.
+- **Release build / R8.** Only `assembleDebug` is built in CI. `proguard-rules.pro` keeps
+  Filament, SceneView, kotlinx-serialization and Retrofit, but only a real
+  `assembleRelease` proves it.
+- **Hardware GL requirement.** Filament needs real OpenGL ES 3.0; an emulator on the
+  software renderer will crash or crawl.
+- **No tests.** `LocalCostEngine`, `Triangulator` and `CameraRig` are pure and were
+  written to be unit-testable; there is still no test source set.
 
 ---
 
