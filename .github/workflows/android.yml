@@ -32,15 +32,27 @@ jobs:
           java-version: '21'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        # Deliberately NOT android-actions/setup-android: it installs the
+        # long-removed 'tools' package and dies with "Failed to find package".
+        # Ubuntu runners already ship the SDK, so use that directly.
+        run: |
+          set -e
+          echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER=$(find "$SDK/cmdline-tools" -name sdkmanager -type f | sort -r | head -1)
+          echo "Using $SDKMANAGER"
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
 
       - name: Install SDK platforms
-        # compileSdk 37 is recent; install explicitly so a failure here is a clear
-        # "platform unavailable" rather than a confusing Gradle resolution error.
+        # compileSdk 37 is recent and may not be published yet; fall back to 36 so
+        # the failure mode is a clear version mismatch, not a resolution error.
         run: |
-          sdkmanager "platform-tools" "platforms;android-37" "build-tools;37.0.0" || \
-          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
-          sdkmanager --list_installed | head -30
+          set -e
+          "$SDKMANAGER" "platform-tools" "platforms;android-37" "build-tools;37.0.0" \
+            || "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          echo "--- installed platforms ---"
+          ls "${ANDROID_HOME}/platforms" || true
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
