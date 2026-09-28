@@ -22,13 +22,29 @@ const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator;
 
 function OrbitRig() {
   const project = useStore((s) => s.project);
+  const camera = useThree((state) => state.camera);
   const controls = useRef<React.ComponentRef<typeof OrbitControls>>(null);
   const bounds = useMemo(() => planBounds(project.floors[0]?.rooms ?? []), [project]);
+  const framed = useRef(false);
 
   useEffect(() => {
     controls.current?.target.set(bounds.centre.x, 1.2, bounds.centre.z);
+
+    // Frame the building once, from the plan's own extents, at a three-quarter
+    // eye-level-ish angle: the fixed start position in <Canvas> looks down on
+    // the roof and leaves half the frame as empty sky. Only on first mount —
+    // afterwards the camera belongs to the user.
+    if (!framed.current) {
+      framed.current = true;
+      const span = Math.max(bounds.size.x, bounds.size.z, 6);
+      camera.position.set(
+        bounds.centre.x + span * 1.1,
+        span * 0.68,
+        bounds.centre.z + span * 1.34,
+      );
+    }
     controls.current?.update();
-  }, [bounds]);
+  }, [bounds, camera]);
 
   return (
     <OrbitControls
@@ -233,11 +249,55 @@ function SceneContent({ manifest }: { manifest: TextureManifest }) {
 // Canvas
 // ---------------------------------------------------------------------------
 
-function ViewportFallback({ label }: { label: string }) {
+/**
+ * A cold start is a real multi-second wait: the WebGPU device has to come up and
+ * the whole TSL post stack has to compile. A bare spinner reads as a hang, so
+ * the overlay names the stages and marks off the ones already done.
+ */
+function ViewportBooting({ stage }: { stage: 'assets' | 'compiling' }) {
+  const steps: Array<[string, 'done' | 'active' | 'todo']> = [
+    ['Loading the finish library', stage === 'assets' ? 'active' : 'done'],
+    ['Starting the WebGPU device', stage === 'assets' ? 'todo' : 'done'],
+    ['Compiling shaders and post-processing', stage === 'assets' ? 'todo' : 'active'],
+  ];
+
   return (
-    <div className="viewport-fallback">
-      <div className="spinner" />
-      <span>{label}</span>
+    <div className="viewport-overlay">
+      <div className="viewport-card">
+        <div className="viewport-card-head">
+          <div className="spinner" />
+          <h3>Preparing the viewport</h3>
+        </div>
+        <p>
+          Photoreal shading, ambient occlusion and screen-space reflections compile once per
+          session. Everything else in the studio is already live.
+        </p>
+        <ul className="viewport-steps">
+          {steps.map(([label, state]) => (
+            <li key={label} className={state === 'todo' ? '' : state}>
+              {label}
+            </li>
+          ))}
+        </ul>
+        <div className="progress-rail" />
+      </div>
+    </div>
+  );
+}
+
+/** Quiet corner readout: which camera you are in, and how to drive it. */
+function ViewportHud() {
+  const cameraMode = useStore((s) => s.cameraMode);
+  const backend = useStore((s) => s.backend);
+  return (
+    <div className="viewport-hud">
+      <span>{cameraMode === 'orbit' ? 'Orbit' : 'Walk'}</span>
+      <span>
+        {cameraMode === 'orbit'
+          ? 'drag to rotate · scroll to zoom'
+          : 'drag to look · WASD to walk · shift to run'}
+      </span>
+      {backend !== 'pending' && <span>{backend === 'webgpu' ? 'WebGPU' : 'WebGL2'}</span>}
     </div>
   );
 }
@@ -254,7 +314,7 @@ export function Viewport() {
     };
   }, []);
 
-  if (!manifest) return <ViewportFallback label="Loading materials…" />;
+  if (!manifest) return <ViewportBooting stage="assets" />;
 
   return (
     <>
@@ -289,7 +349,8 @@ export function Viewport() {
       </Canvas>
       {/* The WebGPU device plus the whole TSL effect stack takes a few seconds
           to compile on a cold start. Say so rather than showing a black box. */}
-      {!rendererReady && <ViewportFallback label="Compiling shaders…" />}
+      {!rendererReady && <ViewportBooting stage="compiling" />}
+      {rendererReady && <ViewportHud />}
     </>
   );
 }

@@ -3,6 +3,7 @@ import type { Surface, SuggestionMode, SuggestionResponse } from '@shared/types'
 import { ApiOffline, getHealth, postSuggestions } from '../lib/api';
 import { useStore } from '../store';
 import { money, moneyPrecise, unitLabel } from '../lib/format';
+import { IconAlert, IconInfo } from './icons';
 
 /**
  * `estimatedSavingsPct` is not pinned to a unit by the contract and the engine
@@ -83,8 +84,16 @@ export function SuggestionsPanel() {
     <div className="panel suggest-panel">
       <header className="panel-header">
         <h2>Suggestions</h2>
-        <span className={`badge ${online === false ? 'badge-warn' : online ? 'badge-ok' : 'badge-quiet'}`}>
-          {online === null ? 'checking' : online ? 'backend online' : 'backend offline'}
+        <span
+          className={`badge ${online === false ? 'badge-warn' : online ? 'badge-ok' : 'badge-quiet'}`}
+          title={
+            online === false
+              ? 'The suggestion engine runs on the backend'
+              : 'Connected to the local backend'
+          }
+        >
+          <i className="dot" />
+          {online === null ? 'checking' : online ? 'backend' : 'offline'}
         </span>
       </header>
 
@@ -101,7 +110,7 @@ export function SuggestionsPanel() {
         ))}
       </div>
 
-      <div className="palette-filters">
+      <div className="palette-filters suggest-controls">
         <select
           className="input select"
           value={styleId}
@@ -120,11 +129,15 @@ export function SuggestionsPanel() {
       </div>
 
       {online === false && (
-        <div className="offline-note">
-          <strong>Backend offline.</strong> Suggestions need <code>POST /api/suggestions</code> on
-          <code> localhost:4000</code>. Everything else — the plan, the 3D view, materials and the
-          cost estimate — keeps working from the bundled catalog.
-          {error && <span className="offline-detail">{error}</span>}
+        <div className="notice notice-warn">
+          <IconAlert size={14} className="notice-icon" />
+          <span>
+            <strong>Suggestions need the backend.</strong>
+            They are the one feature that does. The plan, the 3D view, the catalogue and the live
+            estimate all run locally and are unaffected. Start it with{' '}
+            <code>npm run dev</code> in <code>backend/</code>.
+            {error && <span className="notice-detail">{error}</span>}
+          </span>
         </div>
       )}
 
@@ -134,11 +147,13 @@ export function SuggestionsPanel() {
           {data.currentTotal !== undefined && data.projectedTotal !== undefined && (
             <div className="suggest-totals">
               <span>
-                Now <b className="mono">{money(data.currentTotal, project.currency)}</b>
+                Now
+                <b className="mono">{money(data.currentTotal, project.currency)}</b>
               </span>
               <span className="arrow">→</span>
-              <span>
-                Projected <b className="mono">{money(data.projectedTotal, project.currency)}</b>
+              <span className="projected">
+                If all applied
+                <b className="mono">{money(data.projectedTotal, project.currency)}</b>
               </span>
             </div>
           )}
@@ -193,9 +208,13 @@ export function SuggestionsPanel() {
       )}
 
       {!data && online !== false && (
-        <p className="hint">
-          Pick a mode and hit Suggest. Each result carries its reasoning and the money it moves.
-        </p>
+        <div className="notice">
+          <IconInfo size={14} className="notice-icon" />
+          <span>
+            Pick a mode and hit <strong style={{ display: 'inline' }}>Suggest</strong>. Every result
+            carries its reasoning and the money it moves, so nothing is applied behind your back.
+          </span>
+        </div>
       )}
     </div>
   );

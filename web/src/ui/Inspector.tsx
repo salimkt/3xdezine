@@ -20,13 +20,13 @@ export function Inspector() {
     if (!room) return <Empty onRoof={() => select('roof', 'roof')} />;
     return (
       <div className="panel inspector">
-        <header className="panel-header">
+        <header className="panel-header panel-title">
           <h2>{room.name}</h2>
           <span className="badge badge-quiet">room</span>
         </header>
         <dl className="facts">
-          <Fact label="Floor area" value={fmtArea(polygonArea(room.polygon))} />
-          <Fact label="Ceiling height" value={metres(room.ceilingHeightM)} />
+          <Fact label="Floor area" value={fmtArea(polygonArea(room.polygon))} numeric />
+          <Fact label="Ceiling height" value={metres(room.ceilingHeightM)} numeric />
           <Fact label="Floor finish" value={name(room.floorMaterialId)} />
           <Fact label="Ceiling finish" value={name(room.ceilingMaterialId)} />
         </dl>
@@ -39,13 +39,13 @@ export function Inspector() {
     if (!wall) return <Empty onRoof={() => select('roof', 'roof')} />;
     return (
       <div className="panel inspector">
-        <header className="panel-header">
+        <header className="panel-header panel-title">
           <h2>{wall.exterior ? 'Exterior wall' : 'Interior wall'}</h2>
           <span className="badge badge-quiet mono">{wall.id}</span>
         </header>
         <dl className="facts">
-          <Fact label="Length" value={metres(wallLength(wall))} />
-          <Fact label="Gross face" value={fmtArea(wallLength(wall) * wall.heightM)} />
+          <Fact label="Length" value={metres(wallLength(wall))} numeric />
+          <Fact label="Gross face" value={fmtArea(wallLength(wall) * wall.heightM)} numeric />
           <Fact label="Inside finish" value={name(wall.interiorMaterialId)} />
           {wall.exterior && <Fact label="Facade" value={name(wall.exteriorMaterialId)} />}
         </dl>
@@ -82,13 +82,13 @@ export function Inspector() {
   if (selection.kind === 'roof' && project.roof) {
     return (
       <div className="panel inspector">
-        <header className="panel-header">
+        <header className="panel-header panel-title">
           <h2>Roof</h2>
-          <span className="badge badge-quiet">{project.roof.kind}</span>
+          <span className="badge badge-quiet">{project.roof.kind.toLowerCase()}</span>
         </header>
         <dl className="facts">
-          <Fact label="Pitch" value={`${project.roof.pitchDeg}°`} />
-          <Fact label="Overhang" value={metres(project.roof.overhangM)} />
+          <Fact label="Pitch" value={`${project.roof.pitchDeg}°`} numeric />
+          <Fact label="Overhang" value={metres(project.roof.overhangM)} numeric />
           <Fact label="Covering" value={name(project.roof.materialId)} />
         </dl>
       </div>
@@ -101,23 +101,23 @@ export function Inspector() {
 function Empty({ onRoof }: { onRoof: () => void }) {
   return (
     <div className="panel inspector">
-      <header className="panel-header">
-        <h2>Nothing selected</h2>
+      <header className="panel-header panel-title">
+        <h2 style={{ color: 'var(--text-3)' }}>Nothing selected</h2>
       </header>
       <p className="hint">
         Click a room or a wall — in the plan or in 3D — to inspect it and apply finishes. Drag the
-        round corner handles in the plan to move walls.
+        round corner handles in the plan to move walls, hold <kbd>Alt</kbd> to ignore the snap.
       </p>
-      <button className="btn btn-ghost btn-small" onClick={onRoof}>
+      <button className="btn btn-small" onClick={onRoof} style={{ alignSelf: 'flex-start' }}>
         Select the roof
       </button>
     </div>
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+function Fact({ label, value, numeric }: { label: string; value: string; numeric?: boolean }) {
   return (
-    <div className="fact">
+    <div className={`fact ${numeric ? 'fact-num' : ''}`} title={value}>
       <dt>{label}</dt>
       <dd>{value}</dd>
     </div>

@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
 import { EMPTY_MANIFEST, loadTextureManifest, type HdriEntry } from '../lib/materials';
 import { useCost } from './CostPanel';
 import { money } from '../lib/format';
+import { AndroidMenu } from './AndroidApp';
+import { IconChevron } from './icons';
 
 export function TopBar() {
   const project = useStore((s) => s.project);
@@ -19,10 +21,27 @@ export function TopBar() {
 
   const [hdris, setHdris] = useState<HdriEntry[]>(EMPTY_MANIFEST.hdris);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsWrap = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadTextureManifest().then((m) => setHdris(m.hdris));
   }, []);
+
+  // A render menu that stays open behind a click in the viewport reads as a
+  // stuck panel, so it closes on any outside press and on Escape.
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onDown = (event: MouseEvent) => {
+      if (!settingsWrap.current?.contains(event.target as Node)) setSettingsOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && setSettingsOpen(false);
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [settingsOpen]);
 
   return (
     <header className="topbar">
@@ -40,6 +59,13 @@ export function TopBar() {
             key={mode}
             className={`seg ${view === mode ? 'seg-on' : ''}`}
             onClick={() => setView(mode)}
+            title={
+              mode === '2d'
+                ? 'Floor plan only'
+                : mode === '3d'
+                  ? 'Render only'
+                  : 'Plan and render side by side'
+            }
           >
             {mode === '2d' ? 'Plan' : mode === '3d' ? '3D' : 'Split'}
           </button>
@@ -76,115 +102,139 @@ export function TopBar() {
               : 'Renderer initialising'
         }
       >
-        {backend === 'pending' ? 'renderer…' : backend === 'webgpu' ? 'WebGPU' : 'WebGL2'}
+        <i className="dot" />
+        {backend === 'pending' ? 'renderer' : backend === 'webgpu' ? 'WebGPU' : 'WebGL2'}
       </span>
 
-      <span className="badge badge-quiet" title="Where the material catalog came from">
-        catalog: {catalogSource}
+      <span
+        className="badge badge-quiet"
+        title={
+          catalogSource === 'api'
+            ? 'Catalogue served by the backend'
+            : 'Catalogue read from the bundled seed — identical to the one the backend serves'
+        }
+      >
+        {catalogSource === 'api' ? 'catalog · live' : 'catalog · bundled'}
       </span>
 
-      <button className="btn btn-ghost" onClick={() => setSettingsOpen((o) => !o)}>
-        Render ▾
-      </button>
-      <button className="btn btn-ghost" onClick={resetProject}>
+      <span className="topbar-divider" />
+
+      <AndroidMenu />
+
+      <div ref={settingsWrap} style={{ display: 'contents' }}>
+        <button
+          className={`btn btn-ghost ${settingsOpen ? 'btn-ghost-on' : ''}`}
+          onClick={() => setSettingsOpen((o) => !o)}
+          aria-expanded={settingsOpen}
+        >
+          Render
+          <IconChevron size={12} className={`caret ${settingsOpen ? 'caret-open' : ''}`} />
+        </button>
+
+        {settingsOpen && (
+          <div className="popover render-menu" role="dialog" aria-label="Render settings">
+            <span className="popover-title">Render</span>
+
+            <Field label="Environment">
+              <select
+                className="input select"
+                value={render.hdri}
+                onChange={(event) => patchRender({ hdri: event.target.value })}
+              >
+                {hdris.map((hdri) => (
+                  <option key={hdri.id} value={hdri.url}>
+                    {hdri.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Tone mapping">
+              <div className="segmented segmented-fill">
+                <button
+                  className={`seg ${render.toneMapping === 'AGX' ? 'seg-on' : ''}`}
+                  onClick={() => patchRender({ toneMapping: 'AGX' })}
+                  title="Rolls off blown-out window highlights — the interior failure case"
+                >
+                  AgX
+                </button>
+                <button
+                  className={`seg ${render.toneMapping === 'NEUTRAL' ? 'seg-on' : ''}`}
+                  onClick={() => patchRender({ toneMapping: 'NEUTRAL' })}
+                  title="Material-accurate: shows the marble you actually picked"
+                >
+                  Neutral
+                </button>
+              </div>
+            </Field>
+
+            <Field label="Quality">
+              <div className="segmented segmented-fill">
+                {(['performance', 'balanced', 'high'] as const).map((q) => (
+                  <button
+                    key={q}
+                    className={`seg ${render.quality === q ? 'seg-on' : ''}`}
+                    onClick={() => patchRender({ quality: q })}
+                    title={
+                      q === 'performance'
+                        ? 'No post-processing'
+                        : q === 'balanced'
+                          ? 'GTAO + SSR + TRAA + bloom'
+                          : 'Adds SSGI bounce light'
+                    }
+                  >
+                    {q === 'performance' ? 'Fast' : q === 'balanced' ? 'Balanced' : 'High'}
+                  </button>
+                ))}
+              </div>
+            </Field>
+
+            <Slider
+              label="Exposure"
+              value={render.exposure}
+              min={0.3}
+              max={2.5}
+              step={0.05}
+              onChange={(exposure) => patchRender({ exposure })}
+            />
+            <Slider
+              label="Environment light"
+              value={render.envIntensity}
+              min={0}
+              max={3}
+              step={0.05}
+              onChange={(envIntensity) => patchRender({ envIntensity })}
+            />
+            <Slider
+              label="Sun"
+              value={render.sunIntensity}
+              min={0}
+              max={8}
+              step={0.1}
+              onChange={(sunIntensity) => patchRender({ sunIntensity })}
+            />
+
+            <Field label="Overlays">
+              <div className="toggle-row">
+                <Toggle
+                  label="Ceilings"
+                  value={render.showCeilings}
+                  onChange={(showCeilings) => patchRender({ showCeilings })}
+                />
+                <Toggle
+                  label="Site grid"
+                  value={render.showGrid}
+                  onChange={(showGrid) => patchRender({ showGrid })}
+                />
+              </div>
+            </Field>
+          </div>
+        )}
+      </div>
+
+      <button className="btn btn-ghost" onClick={resetProject} title="Discard edits and reload the sample project">
         Reset
       </button>
-
-      {settingsOpen && (
-        <div className="render-menu">
-          <Field label="Environment">
-            <select
-              className="input select"
-              value={render.hdri}
-              onChange={(event) => patchRender({ hdri: event.target.value })}
-            >
-              {hdris.map((hdri) => (
-                <option key={hdri.id} value={hdri.url}>
-                  {hdri.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field label="Tone mapping">
-            <div className="segmented segmented-fill">
-              <button
-                className={`seg ${render.toneMapping === 'AGX' ? 'seg-on' : ''}`}
-                onClick={() => patchRender({ toneMapping: 'AGX' })}
-                title="Rolls off blown-out window highlights — the interior failure case"
-              >
-                AgX
-              </button>
-              <button
-                className={`seg ${render.toneMapping === 'NEUTRAL' ? 'seg-on' : ''}`}
-                onClick={() => patchRender({ toneMapping: 'NEUTRAL' })}
-                title="Material-accurate: shows the marble you actually picked"
-              >
-                Neutral
-              </button>
-            </div>
-          </Field>
-
-          <Field label="Quality">
-            <div className="segmented segmented-fill">
-              {(['performance', 'balanced', 'high'] as const).map((q) => (
-                <button
-                  key={q}
-                  className={`seg ${render.quality === q ? 'seg-on' : ''}`}
-                  onClick={() => patchRender({ quality: q })}
-                  title={
-                    q === 'performance'
-                      ? 'No post-processing'
-                      : q === 'balanced'
-                        ? 'GTAO + SSR + TRAA + bloom'
-                        : 'Adds SSGI bounce light'
-                  }
-                >
-                  {q === 'performance' ? 'Fast' : q === 'balanced' ? 'Balanced' : 'High'}
-                </button>
-              ))}
-            </div>
-          </Field>
-
-          <Slider
-            label="Exposure"
-            value={render.exposure}
-            min={0.3}
-            max={2.5}
-            step={0.05}
-            onChange={(exposure) => patchRender({ exposure })}
-          />
-          <Slider
-            label="Environment light"
-            value={render.envIntensity}
-            min={0}
-            max={3}
-            step={0.05}
-            onChange={(envIntensity) => patchRender({ envIntensity })}
-          />
-          <Slider
-            label="Sun"
-            value={render.sunIntensity}
-            min={0}
-            max={8}
-            step={0.1}
-            onChange={(sunIntensity) => patchRender({ sunIntensity })}
-          />
-
-          <div className="toggle-row">
-            <Toggle
-              label="Ceilings"
-              value={render.showCeilings}
-              onChange={(showCeilings) => patchRender({ showCeilings })}
-            />
-            <Toggle
-              label="Grid"
-              value={render.showGrid}
-              onChange={(showGrid) => patchRender({ showGrid })}
-            />
-          </div>
-        </div>
-      )}
     </header>
   );
 }

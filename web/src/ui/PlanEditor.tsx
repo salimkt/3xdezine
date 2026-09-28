@@ -7,6 +7,12 @@ import { area as fmtArea, metres } from '../lib/format';
 const SNAP_M = 0.1;
 const PADDING_M = 2.2;
 
+/** Rounds a scale-bar length to something a draughtsman would actually print. */
+const NICE_M = [0.5, 1, 2, 5, 10, 20, 50, 100];
+function niceLength(metres: number): number {
+  return NICE_M.find((n) => n >= metres) ?? NICE_M[NICE_M.length - 1];
+}
+
 interface ViewBox {
   x: number;
   y: number;
@@ -185,6 +191,12 @@ export function PlanEditor() {
   const px = (pixels: number) => pixels / pxPerM;
   const hair = px(1);
 
+  // A scale bar is the cheapest way to make a plan read as a drawing rather
+  // than a diagram; it is sized to whatever round number lands near 90px.
+  const scaleM = niceLength(px(90));
+  const scaleX = view.x + view.w - px(18) - scaleM;
+  const scaleY = view.y + view.h - px(30);
+
   return (
     <div className="plan-root">
       <div className="plan-toolbar">
@@ -198,6 +210,7 @@ export function PlanEditor() {
         </button>
         <button
           className="chip"
+          title="Frame the whole plan"
           onClick={() =>
             setView({
               x: bounds.min.x - PADDING_M,
@@ -210,169 +223,298 @@ export function PlanEditor() {
           Fit
         </button>
         <span className="plan-readout">
-          {cursor ? `${cursor.x.toFixed(2)}, ${cursor.z.toFixed(2)} m` : 'drag corners to edit'}
+          {cursor ? (
+            <>
+              x <b>{cursor.x.toFixed(2)}</b> &nbsp;y <b>{cursor.z.toFixed(2)}</b> m
+            </>
+          ) : (
+            'drag corners to edit'
+          )}
         </span>
       </div>
 
-      <svg
-        ref={attachSvg}
-        className="plan-svg"
-        viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
-        onWheel={onWheel}
-        onPointerMove={(event) => setCursor(toWorld(event))}
-        onPointerLeave={() => setCursor(null)}
-        onPointerDown={(event) => {
-          if (event.target === svgRef.current || (event.target as Element).id === 'plan-bg') {
-            selection(null, null);
-            setPan({ x: event.clientX, y: event.clientY, vx: view.x, vy: view.y });
-          }
-        }}
-      >
-        <defs>
-          <pattern id="plan-grid" width="1" height="1" patternUnits="userSpaceOnUse">
-            <path d="M 1 0 L 0 0 0 1" fill="none" stroke="#242830" strokeWidth={hair} />
-          </pattern>
-          <pattern id="plan-grid-5" width="5" height="5" patternUnits="userSpaceOnUse">
-            <rect width="5" height="5" fill="url(#plan-grid)" />
-            <path d="M 5 0 L 0 0 0 5" fill="none" stroke="#2F3540" strokeWidth={hair * 1.6} />
-          </pattern>
-        </defs>
-
-        <rect
-          id="plan-bg"
-          x={view.x}
-          y={view.y}
-          width={view.w}
-          height={view.h}
-          fill="url(#plan-grid-5)"
-        />
-
-        {/* Rooms */}
-        {floor.rooms.map((room: Room) => {
-          const isSelected = selected.kind === 'room' && selected.id === room.id;
-          const centroid = polygonCentroid(room.polygon);
-          return (
-            <g key={room.id} className="plan-room">
-              <polygon
-                points={room.polygon.map((p) => `${p.x},${p.z}`).join(' ')}
-                fill={materialColor(room.floorMaterialId)}
-                fillOpacity={isSelected ? 0.45 : 0.24}
-                stroke={isSelected ? '#6EE7F2' : 'transparent'}
-                strokeWidth={hair * 2.5}
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                  selection('room', room.id);
-                  setSurfaceTarget('FLOOR');
-                }}
+      <div className="plan-stage">
+        <svg
+          ref={attachSvg}
+          className="plan-svg"
+          viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
+          onWheel={onWheel}
+          onPointerMove={(event) => setCursor(toWorld(event))}
+          onPointerLeave={() => setCursor(null)}
+          onPointerDown={(event) => {
+            if (event.target === svgRef.current || (event.target as Element).id === 'plan-bg') {
+              selection(null, null);
+              setPan({ x: event.clientX, y: event.clientY, vx: view.x, vy: view.y });
+            }
+          }}
+        >
+          <defs>
+            <pattern id="plan-grid" width="1" height="1" patternUnits="userSpaceOnUse">
+              <path d="M 1 0 L 0 0 0 1" fill="none" stroke="#1b1f26" strokeWidth={hair} />
+            </pattern>
+            <pattern id="plan-grid-5" width="5" height="5" patternUnits="userSpaceOnUse">
+              <rect width="5" height="5" fill="url(#plan-grid)" />
+              <path d="M 5 0 L 0 0 0 5" fill="none" stroke="#252b34" strokeWidth={hair * 1.4} />
+            </pattern>
+            {/* Poché for the selected room — a drafting convention that reads at
+                any zoom, unlike a heavier fill. */}
+            <pattern
+              id="plan-hatch"
+              width="0.5"
+              height="0.5"
+              patternUnits="userSpaceOnUse"
+              patternTransform="rotate(45)"
+            >
+              <line
+                x1="0"
+                y1="0"
+                x2="0"
+                y2="0.5"
+                stroke="rgba(91,211,227,0.30)"
+                strokeWidth={hair * 1.2}
               />
-              <text
-                x={centroid.x}
-                y={centroid.z - 0.18}
-                className="plan-room-name"
-                style={{ fontSize: Math.min(0.42, view.w / 34) }}
-              >
-                {room.name}
-              </text>
-              <text
-                x={centroid.x}
-                y={centroid.z + 0.42}
-                className="plan-room-area"
-                style={{ fontSize: Math.min(0.34, view.w / 44) }}
-              >
-                {fmtArea(polygonArea(room.polygon))}
-              </text>
-            </g>
-          );
-        })}
+            </pattern>
+          </defs>
 
-        {/* Walls */}
-        {floor.walls.map((wall) => {
-          const isSelected = selected.kind === 'wall' && selected.id === wall.id;
-          return (
-            <polygon
-              key={wall.id}
-              points={wallQuad(wall)}
-              fill={isSelected ? '#6EE7F2' : wall.exterior ? '#CED4DA' : '#8C949D'}
-              stroke={isSelected ? '#A8F1F8' : '#1A1D23'}
-              strokeWidth={hair}
-              className="plan-wall"
-              onPointerDown={(event) => {
-                event.stopPropagation();
-                selection('wall', wall.id);
-              }}
+          <rect
+            id="plan-bg"
+            x={view.x}
+            y={view.y}
+            width={view.w}
+            height={view.h}
+            fill="url(#plan-grid-5)"
+          />
+
+          {/* Rooms */}
+          {floor.rooms.map((room: Room) => {
+            const isSelected = selected.kind === 'room' && selected.id === room.id;
+            const centroid = polygonCentroid(room.polygon);
+            const points = room.polygon.map((p) => `${p.x},${p.z}`).join(' ');
+            const nameSize = Math.min(0.42, view.w / 34);
+            return (
+              <g
+                key={room.id}
+                className={`plan-room ${isSelected ? 'plan-room-selected' : ''}`}
+              >
+                <polygon
+                  className="plan-room-fill"
+                  points={points}
+                  fill={materialColor(room.floorMaterialId)}
+                  fillOpacity={isSelected ? 0.5 : 0.26}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    selection('room', room.id);
+                    setSurfaceTarget('FLOOR');
+                  }}
+                />
+                {isSelected && (
+                  <>
+                    <polygon points={points} fill="url(#plan-hatch)" pointerEvents="none" />
+                    <polygon
+                      points={points}
+                      fill="none"
+                      stroke="#5BD3E3"
+                      strokeWidth={hair * 2}
+                      strokeLinejoin="round"
+                      pointerEvents="none"
+                    />
+                  </>
+                )}
+                <text
+                  x={centroid.x}
+                  y={centroid.z - 0.16}
+                  className="plan-room-name"
+                  style={{ fontSize: nameSize, strokeWidth: nameSize * 0.24 }}
+                >
+                  {room.name}
+                </text>
+                <text
+                  x={centroid.x}
+                  y={centroid.z + 0.44}
+                  className="plan-room-area"
+                  style={{ fontSize: Math.min(0.32, view.w / 46), strokeWidth: nameSize * 0.2 }}
+                >
+                  {fmtArea(polygonArea(room.polygon))}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Walls */}
+          {floor.walls.map((wall) => {
+            const isSelected = selected.kind === 'wall' && selected.id === wall.id;
+            const quad = wallQuad(wall);
+            return (
+              <g key={wall.id}>
+                {/* A halo rather than a flood fill: the poché stays readable as
+                    masonry while the selection is unmistakable at any zoom. */}
+                {isSelected && (
+                  <polygon
+                    points={quad}
+                    fill="none"
+                    stroke="#5BD3E3"
+                    strokeOpacity={0.4}
+                    strokeWidth={px(7)}
+                    strokeLinejoin="round"
+                    pointerEvents="none"
+                  />
+                )}
+                <polygon
+                  points={quad}
+                  fill={wall.exterior ? '#D3D9E0' : '#79828F'}
+                  stroke={isSelected ? '#5BD3E3' : '#0C0E12'}
+                  strokeWidth={isSelected ? px(1.6) : hair}
+                  strokeLinejoin="round"
+                  className="plan-wall"
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    selection('wall', wall.id);
+                  }}
+                />
+              </g>
+            );
+          })}
+
+          {/* Openings punched through the wall fill */}
+          {floor.openings.map((opening) => {
+            const wall = floor.walls.find((w) => w.id === opening.wallId);
+            if (!wall) return null;
+            const r = openingRect(wall, opening);
+            return (
+              <g key={opening.id} className="plan-opening" pointerEvents="none">
+                <polygon
+                  points={`${r.a.x},${r.a.z} ${r.b.x},${r.b.z} ${r.c.x},${r.c.z} ${r.d.x},${r.d.z}`}
+                  fill="#0F1217"
+                />
+                {r.isDoor ? (
+                  <path
+                    d={`M ${r.a.x - (r.a.x - r.d.x) / 2},${r.a.z - (r.a.z - r.d.z) / 2}
+                        L ${r.b.x - (r.b.x - r.c.x) / 2},${r.b.z - (r.b.z - r.c.z) / 2}`}
+                    stroke="#5BD3E3"
+                    strokeWidth={hair * 2}
+                    fill="none"
+                  />
+                ) : (
+                  <line
+                    x1={r.cx - r.dx * r.half}
+                    y1={r.cz - r.dz * r.half}
+                    x2={r.cx + r.dx * r.half}
+                    y2={r.cz + r.dz * r.half}
+                    stroke="#9BD8FF"
+                    strokeWidth={hair * 2.5}
+                  />
+                )}
+              </g>
+            );
+          })}
+
+          {/* Selected wall dimension, on a plate so it survives any background */}
+          {selectedWall &&
+            (() => {
+              const label = metres(wallLength(selectedWall));
+              const size = Math.min(0.34, view.w / 44);
+              const cx = (selectedWall.start.x + selectedWall.end.x) / 2;
+              const cy = (selectedWall.start.z + selectedWall.end.z) / 2 - 0.42;
+              const w = label.length * size * 0.62 + size * 0.7;
+              return (
+                <g pointerEvents="none">
+                  <rect
+                    x={cx - w / 2}
+                    y={cy - size * 0.86}
+                    width={w}
+                    height={size * 1.22}
+                    rx={size * 0.3}
+                    fill="#5BD3E3"
+                  />
+                  <text x={cx} y={cy} className="plan-dim" style={{ fontSize: size }}>
+                    {label}
+                  </text>
+                </g>
+              );
+            })()}
+
+          {/* Draggable corners */}
+          {endpoints.map((endpoint) => {
+            const grab = (event: React.PointerEvent) => {
+              event.stopPropagation();
+              setDrag({ wallId: endpoint.wallId, which: endpoint.which });
+              selection('wall', endpoint.wallId);
+            };
+            const active = drag?.wallId === endpoint.wallId;
+            return (
+              <g key={endpoint.key}>
+                {/* An invisible, comfortably sized grab target around the dot. */}
+                <circle
+                  cx={endpoint.p.x}
+                  cy={endpoint.p.z}
+                  r={px(11)}
+                  fill="transparent"
+                  className="plan-handle-hit"
+                  onPointerDown={grab}
+                />
+                <circle
+                  cx={endpoint.p.x}
+                  cy={endpoint.p.z}
+                  r={px(4.5)}
+                  strokeWidth={px(1.8)}
+                  className={`plan-handle ${active ? 'plan-handle-active' : ''}`}
+                />
+              </g>
+            );
+          })}
+
+          {/* Scale bar */}
+          <g pointerEvents="none" className="plan-scale">
+            <line
+              x1={scaleX}
+              y1={scaleY}
+              x2={scaleX + scaleM}
+              y2={scaleY}
+              stroke="#4A5260"
+              strokeWidth={px(1.5)}
             />
-          );
-        })}
+            <line
+              x1={scaleX}
+              y1={scaleY - px(3.5)}
+              x2={scaleX}
+              y2={scaleY + px(3.5)}
+              stroke="#4A5260"
+              strokeWidth={px(1.5)}
+            />
+            <line
+              x1={scaleX + scaleM}
+              y1={scaleY - px(3.5)}
+              x2={scaleX + scaleM}
+              y2={scaleY + px(3.5)}
+              stroke="#4A5260"
+              strokeWidth={px(1.5)}
+            />
+            <text
+              x={scaleX + scaleM / 2}
+              y={scaleY - px(6)}
+              className="plan-scale-text"
+              style={{ fontSize: px(10) }}
+            >
+              {scaleM < 1 ? `${scaleM * 100} cm` : `${scaleM} m`}
+            </text>
+          </g>
+        </svg>
 
-        {/* Openings punched through the wall fill */}
-        {floor.openings.map((opening) => {
-          const wall = floor.walls.find((w) => w.id === opening.wallId);
-          if (!wall) return null;
-          const r = openingRect(wall, opening);
-          return (
-            <g key={opening.id} className="plan-opening" pointerEvents="none">
-              <polygon
-                points={`${r.a.x},${r.a.z} ${r.b.x},${r.b.z} ${r.c.x},${r.c.z} ${r.d.x},${r.d.z}`}
-                fill="#171A20"
-              />
-              {r.isDoor ? (
-                <path
-                  d={`M ${r.a.x - (r.a.x - r.d.x) / 2},${r.a.z - (r.a.z - r.d.z) / 2}
-                      L ${r.b.x - (r.b.x - r.c.x) / 2},${r.b.z - (r.b.z - r.c.z) / 2}`}
-                  stroke="#6EE7F2"
-                  strokeWidth={hair * 2}
-                  fill="none"
-                />
-              ) : (
-                <line
-                  x1={r.cx - r.dx * r.half}
-                  y1={r.cz - r.dz * r.half}
-                  x2={r.cx + r.dx * r.half}
-                  y2={r.cz + r.dz * r.half}
-                  stroke="#9BD8FF"
-                  strokeWidth={hair * 2.5}
-                />
-              )}
-            </g>
-          );
-        })}
-
-        {/* Selected wall dimension */}
-        {selectedWall && (
-          <text
-            x={(selectedWall.start.x + selectedWall.end.x) / 2}
-            y={(selectedWall.start.z + selectedWall.end.z) / 2 - 0.35}
-            className="plan-dim"
-            style={{ fontSize: Math.min(0.36, view.w / 42) }}
-          >
-            {metres(wallLength(selectedWall))}
-          </text>
-        )}
-
-        {/* Draggable corners */}
-        {endpoints.map((endpoint) => {
-          const grab = (event: React.PointerEvent) => {
-            event.stopPropagation();
-            setDrag({ wallId: endpoint.wallId, which: endpoint.which });
-            selection('wall', endpoint.wallId);
-          };
-          return (
-            <g key={endpoint.key} onPointerDown={grab}>
-              {/* An invisible, comfortably sized grab target around the dot. */}
-              <circle cx={endpoint.p.x} cy={endpoint.p.z} r={px(11)} fill="transparent" />
-              <circle
-                cx={endpoint.p.x}
-                cy={endpoint.p.z}
-                r={px(4.5)}
-                strokeWidth={px(1.8)}
-                className={`plan-handle ${
-                  drag?.wallId === endpoint.wallId ? 'plan-handle-active' : ''
-                }`}
-              />
-            </g>
-          );
-        })}
-      </svg>
+        <div className="plan-legend">
+          <span>
+            <i style={{ background: '#D3D9E0' }} />
+            exterior
+          </span>
+          <span>
+            <i style={{ background: '#79828F' }} />
+            interior
+          </span>
+          <span>
+            <i style={{ background: '#9BD8FF' }} />
+            glazing
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

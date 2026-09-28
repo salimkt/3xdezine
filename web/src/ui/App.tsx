@@ -8,6 +8,8 @@ import { Inspector } from './Inspector';
 import { MaterialPalette } from './MaterialPalette';
 import { CostPanel } from './CostPanel';
 import { SuggestionsPanel } from './SuggestionsPanel';
+import { MobileGate } from './AndroidApp';
+import { IconAlert } from './icons';
 
 /**
  * A failed 3D pipeline must not take the design tool with it — the plan, the
@@ -27,12 +29,18 @@ class ViewportBoundary extends Component<{ children: ReactNode }, { error: Error
   render() {
     if (this.state.error) {
       return (
-        <div className="viewport-fallback viewport-error">
-          <strong>3D viewport unavailable</strong>
-          <span>{this.state.error.message}</span>
-          <span className="dim">
-            The plan, materials and cost estimate below keep working.
-          </span>
+        <div className="viewport-overlay viewport-error">
+          <div className="viewport-card">
+            <div className="viewport-card-head">
+              <IconAlert size={16} />
+              <h3>3D viewport unavailable</h3>
+            </div>
+            <p>
+              This machine&rsquo;s graphics stack refused the render pipeline. The plan, the
+              material catalogue and the live estimate are unaffected and keep working.
+            </p>
+            <div className="viewport-error-detail">{this.state.error.message}</div>
+          </div>
         </div>
       );
     }
@@ -42,6 +50,7 @@ class ViewportBoundary extends Component<{ children: ReactNode }, { error: Error
 
 export function App() {
   const view = useStore((s) => s.view);
+  const project = useStore((s) => s.project);
   const setCatalog = useStore((s) => s.setCatalog);
 
   // Prefer the served catalog when the backend is up; fall back silently to the
@@ -56,6 +65,7 @@ export function App() {
 
   return (
     <div className="app">
+      <MobileGate projectName={project.name} />
       <TopBar />
       <main className={`workspace workspace-${view}`}>
         {view !== '3d' && (

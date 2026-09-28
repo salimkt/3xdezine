@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Material, Surface, Tier } from '@shared/types';
 import { materialsForSurface, targetsFor, useStore } from '../store';
 import { moneyPrecise, unitLabel } from '../lib/format';
+import { assetUrl, EMPTY_MANIFEST, loadTextureManifest, type TextureManifest } from '../lib/materials';
+import { IconCheck } from './icons';
 
 const SURFACE_LABEL: Record<Surface, string> = {
   FLOOR: 'Floor',
@@ -39,6 +41,18 @@ export function MaterialPalette() {
 
   const [query, setQuery] = useState('');
   const [tier, setTier] = useState<Tier | 'ALL'>('ALL');
+
+  // The same albedo map the 3D view uses, so a swatch is a real sample of the
+  // finish rather than a flat catalogue colour. Falls back to the colour when a
+  // material has no texture set — the manifest is optional by design.
+  const [manifest, setManifest] = useState<TextureManifest>(EMPTY_MANIFEST);
+  useEffect(() => {
+    let live = true;
+    loadTextureManifest().then((m) => live && setManifest(m));
+    return () => {
+      live = false;
+    };
+  }, []);
 
   const wall =
     selection.kind === 'wall'
@@ -111,25 +125,51 @@ export function MaterialPalette() {
       </div>
 
       <div className="swatch-grid">
-        {materials.map((material) => (
-          <button
-            key={material.id}
-            className={`swatch ${applied === material.id ? 'swatch-on' : ''}`}
-            disabled={disabled}
-            onClick={() => applyMaterial(material.id)}
-            title={material.description}
-          >
-            <span className="swatch-chip" style={{ background: material.color.hex }}>
-              <span className={`swatch-tier tier-${material.tier.toLowerCase()}`} />
-            </span>
-            <span className="swatch-name">{material.name}</span>
-            <span className="swatch-price mono">
-              {moneyPrecise(material.pricePerUnit, catalog.meta.baseCurrency)}
-              <small>/{unitLabel(material.unit)}</small>
-            </span>
-          </button>
-        ))}
-        {materials.length === 0 && <p className="hint">Nothing matches that filter.</p>}
+        {materials.map((material) => {
+          const colorMap = manifest.materials[material.id]?.maps?.color;
+          const selected = applied === material.id;
+          return (
+            <button
+              key={material.id}
+              className={`swatch ${selected ? 'swatch-on' : ''}`}
+              disabled={disabled}
+              onClick={() => applyMaterial(material.id)}
+              title={material.description}
+              aria-pressed={selected}
+            >
+              <span
+                className="swatch-chip"
+                style={{
+                  backgroundColor: material.color.hex,
+                  ...(colorMap ? { backgroundImage: `url(${assetUrl(colorMap)})` } : null),
+                }}
+              >
+                <span className={`swatch-tier tier-${material.tier.toLowerCase()}`}>
+                  <i />
+                  {material.tier}
+                </span>
+                {selected && (
+                  <span className="swatch-check">
+                    <IconCheck size={9} />
+                  </span>
+                )}
+              </span>
+              <span className="swatch-body">
+                <span className="swatch-name">{material.name}</span>
+                <span className="swatch-price mono">
+                  {moneyPrecise(material.pricePerUnit, catalog.meta.baseCurrency)}
+                  <small>/{unitLabel(material.unit)}</small>
+                </span>
+              </span>
+            </button>
+          );
+        })}
+        {materials.length === 0 && (
+          <p className="hint palette-empty">
+            No {tier === 'ALL' ? '' : `${tier.toLowerCase()} `}finish matches
+            {query.trim() ? ` “${query.trim()}”` : ''}.
+          </p>
+        )}
       </div>
     </div>
   );
