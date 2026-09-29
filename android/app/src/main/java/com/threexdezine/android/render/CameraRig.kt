@@ -82,33 +82,48 @@ class CameraRig(
 
     fun position(): Float3 = Float3(x, y, z)
 
+    /** Orientation as a unit quaternion; see [CameraMath.quaternion]. */
+    fun quaternion(): Quaternion = CameraMath.quaternion(yaw, pitch)
+
     /**
-     * Orientation as a unit quaternion: yaw about +Y, then pitch about the resulting +X.
-     * Composed as q = qYaw * qPitch, written out rather than delegated so the component
-     * order does not depend on a library's multiplication convention.
+     * Full vertical field of view, degrees. Walk-mode zoom changes this instead of moving
+     * the camera, because dollying a first-person camera forward clips it through walls.
      */
-    fun quaternion(): Quaternion {
-        val hy = yaw * 0.5f
-        val hp = pitch * 0.5f
-        val cy = cos(hy)
-        val sy = sin(hy)
-        val cp = cos(hp)
-        val sp = sin(hp)
-        // qYaw = (0, sy, 0, cy), qPitch = (sp, 0, 0, cp)
-        // (w1,v1) * (w2,v2) = (w1w2 - v1.v2, w1v2 + w2v1 + v1 x v2)
-        // v1 x v2 = (0,sy,0) x (sp,0,0) = (sy*0 - 0*0, 0*sp - 0*0, 0*0 - sy*sp)
-        //         = (0, 0, -sy*sp)
-        return Quaternion(
-            x = cy * sp,
-            y = sy * cp,
-            z = -sy * sp,
-            w = cy * cp,
-        )
+    var fovDeg: Float = DEFAULT_FOV_DEG
+        private set
+
+    /** Pinch. [zoom] > 1 means fingers spreading, which narrows the FOV (zooms in). */
+    fun zoomFov(zoom: Float) {
+        if (zoom <= 0f || zoom.isNaN()) return
+        fovDeg = (fovDeg / zoom).coerceIn(MIN_FOV_DEG, MAX_FOV_DEG)
+    }
+
+    fun setFov(deg: Float) {
+        fovDeg = deg.coerceIn(MIN_FOV_DEG, MAX_FOV_DEG)
+    }
+
+    fun pose(): CameraPose = CameraPose(x, y, z, yaw, pitch, fovDeg)
+
+    /** Adopts a pose (the end of a tween), keeping pitch and FOV inside their limits. */
+    fun setPose(p: CameraPose) {
+        x = p.x; y = p.y; z = p.z
+        yaw = CameraMath.wrapAngle(p.yaw)
+        pitch = p.pitch.coerceIn(-MAX_PITCH, MAX_PITCH)
+        setFov(p.fovDeg)
     }
 
     companion object {
         const val EYE_HEIGHT_M = 1.6f
         const val WALK_SPEED_MPS = 1.9f
+        const val MIN_FOV_DEG = 30f
+        const val MAX_FOV_DEG = 80f
+
+        /**
+         * SceneView's `CameraNode` default is a 28 mm lens on Filament's 24 mm sensor,
+         * i.e. 2·atan(12/28) ≈ 46.4° vertical. Walk mode starts exactly there so nothing
+         * changes until the user pinches.
+         */
+        val DEFAULT_FOV_DEG: Float = CameraMath.verticalFovForFocalLengthMm(28.0)
         private const val LOOK_RADIANS_PER_PIXEL = 0.004f
         private val MAX_PITCH = (PI / 2 - 0.02).toFloat()
     }

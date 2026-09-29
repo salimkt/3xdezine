@@ -67,6 +67,11 @@ jobs:
         # app has never been through a shrinker.
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
+      - name: Unit tests (camera maths)
+        # Plain JVM tests under app/src/test. A failure here stops the APK from being
+        # published, same as a compile error.
+        run: gradle :app:testDebugUnitTest --stacktrace --no-daemon
+
       - name: Locate APK
         id: apk
         if: success()

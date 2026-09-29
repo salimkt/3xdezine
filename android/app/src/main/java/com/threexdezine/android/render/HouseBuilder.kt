@@ -508,6 +508,34 @@ object HouseBuilder {
         return Triple(cx.toFloat(), 1.6f, cz.toFloat())
     }
 
+    /**
+     * Extents of the ground floor — room polygons and wall end points, grown by half the
+     * thickest wall so the outer faces are inside — used to frame the orbit camera.
+     */
+    fun planBounds(project: Project): PlanBounds {
+        val floor = project.groundFloor ?: return PlanBounds.FALLBACK
+        val xs = ArrayList<Double>()
+        val zs = ArrayList<Double>()
+        floor.rooms.forEach { r -> r.polygon.forEach { xs += it.x; zs += it.z } }
+        floor.walls.forEach { w ->
+            xs += w.start.x; xs += w.end.x
+            zs += w.start.z; zs += w.end.z
+        }
+        if (xs.isEmpty()) return PlanBounds.FALLBACK
+        val pad = (floor.walls.maxOfOrNull { it.thicknessM } ?: 0.0) * 0.5
+        val height = max(
+            floor.walls.maxOfOrNull { it.heightM } ?: 0.0,
+            floor.rooms.maxOfOrNull { it.ceilingHeightM } ?: 0.0,
+        ).takeIf { it > 0.0 } ?: 2.7
+        return PlanBounds(
+            minX = (xs.min() - pad).toFloat(),
+            maxX = (xs.max() + pad).toFloat(),
+            minZ = (zs.min() - pad).toFloat(),
+            maxZ = (zs.max() + pad).toFloat(),
+            height = height.toFloat(),
+        )
+    }
+
     fun polygonArea(polygon: List<Vec2>): Double =
         Triangulator.signedArea(polygon.map { doubleArrayOf(it.x, it.z) }).let { kotlin.math.abs(it) }
 }

@@ -165,19 +165,72 @@ cp shared/catalog.seed.json shared/sample-project.json \
 - `render/RenderTuning.kt` — PCSS shadows, SSR, TAA, SSAO, bloom, and an **AgX** tone
   mapper (Filament's default is ACESLegacy; AgX rolls off blown window highlights, which
   is the characteristic interior failure case, and matches the web client).
-- `render/CameraRig.kt` — first-person walkthrough camera, pure trigonometry.
+- `render/CameraRig.kt` — first-person walkthrough camera, pure trigonometry, plus the
+  walk-mode field of view.
+- `render/OrbitRig.kt` — overview camera: target, yaw, elevation, distance → pose.
+  Framing, orbit, dolly and pan limits are all derived from the plan's bounding box.
+- `render/CameraMath.kt` — shared pose type, shortest-arc interpolation, FOV ↔ focal
+  length, screen rays, frustum fitting. Covered by `app/src/test` (JVM, runs in CI).
 - `render/SceneController.kt` — owns every Filament resource this app creates, and frees
   all of it from a `DisposableEffect`.
 
 ### UI
 - Project list with an offline banner and the catalog's `priceBasis` disclaimer.
-- 3D walkthrough: drag to look, thumb-stick to walk, room chips to teleport, raise/lower
-  eye height.
+- 3D walkthrough with two cameras — **Walk** (first person) and **Overview** (orbit
+  the whole house from outside) — see [Controls](#controls).
 - Material bottom sheet: pick a surface → pick a target (every floor, or just the
   kitchen) → pick a material. Applies live.
 - Cost bottom sheet: itemised line items showing raw → buffered quantity and the wastage
   factor per line, both buffering stages separated, measured quantities, buffered total,
   and the "material supply only, no labour" disclaimer repeated.
+
+---
+
+## Controls
+
+| Gesture / control | Walk | Overview |
+|---|---|---|
+| One-finger drag | Look around | Orbit the house (elevation clamped 3°–85°, never below ground) |
+| Pinch | Zoom the lens: vertical FOV 30°–80°, starts at 46.4° (the camera never moves, so it cannot clip through a wall) | Dolly in/out, clamped between limits derived from the plan's size |
+| Two-finger drag | — (ignored; two fingers only zoom) | Pan the orbit target across the floor |
+| Double-tap | Ease the lens back to the default FOV | Zoom toward the tapped spot on the floor (distance ×0.5); tapping sky/lawn re-frames the house |
+| Thumb-stick | Walk | Hidden |
+| **−** / **+** | Ease the FOV out/in by ×1.4 | Ease the dolly out/in by ×1.4 |
+| **Frame house** | Glide out to the overview, framed | Glide back to the framed three-quarter view |
+| **Overview** / **Walk** (top bar) | Switch camera, eased | Switch camera, eased |
+| Room chip | Glide to the room | Glide down into the room (switches to Walk) |
+
+A pinch never also counts as a drag: once a second finger lands, the rest of that
+gesture is pinch-only, including after one finger lifts. A new touch, button or stick
+push cancels any camera animation in flight; cancelling a Walk ↔ Overview glide lands on
+the destination camera.
+
+**Framing** comes from the ground floor's bounding box (rooms and walls, padded by half
+a wall thickness): a three-quarter view from the +X/+Z corner at 30° elevation, like the
+web client's orbit default, pulled back until the bounding sphere fits the narrower of
+the horizontal and vertical FOV — so portrait phones frame by width.
+
+**Motion.** Camera moves run for 400 ms on `FastOutSlowInEasing` (no overshoot) and push
+the pose and call `requestRender()` on every frame. The list ↔ walkthrough change is an
+`AnimatedContent` cross-fade; the cost totals count to their new value on a reprice
+(tabular figures) and each line item has an animated share-of-subtotal bar; the
+material sheet resizes smoothly and the tapped card pulses; the loading overlay fades
+out with a two-stage progress bar. With the system animator scale set to 0 (Developer
+options, or Accessibility → Remove animations), everything — camera tweens included —
+jumps to its end state.
+
+**How zoom is applied.** Zoom is written as `cameraNode.focalLength` (Filament's lens
+model: 24 mm sensor, vertical FOV = 2·atan(12 mm / f)), not with a one-off
+`setProjection(fov, …)`. SceneView's `CameraNode` stores the focal length and calls
+`updateProjection()` — which recomputes the aspect from the new viewport — on every
+surface resize, so a direct `setProjection` would be silently replaced by the 28 mm
+default the first time the phone rotated.
+
+**Why the walkthrough never fades.** It renders into a SurfaceView (SceneView's default
+and fastest surface), which composites behind the window and ignores Compose alpha and
+scale. The project list is therefore always drawn above it: entering, the list fades
+and scales away to reveal the 3D view; leaving, the list fades back in over it and the
+walkthrough (and its Filament engine) is disposed once, when that finishes.
 
 ---
 
@@ -368,8 +421,19 @@ appears on screen. In rough order of how likely each is to bite:
   `assembleRelease` proves it.
 - **Hardware GL requirement.** Filament needs real OpenGL ES 3.0; an emulator on the
   software renderer will crash or crawl.
-- **No tests.** `LocalCostEngine`, `Triangulator` and `CameraRig` are pure and were
-  written to be unit-testable; there is still no test source set.
+- **Camera gestures and animation.** Only the maths is tested (`app/src/test`, run in
+  CI). Whether drag/pinch/double-tap feel right, whether a stray third finger or a
+  pinch that starts on a button misbehaves, how the right-edge controls interact with
+  the system back gesture, and whether every animation frame actually reaches the
+  screen under render-on-demand are all unobserved. If a camera glide looks like a
+  jump, suspect a missed invalidation before suspecting the tween.
+- **FOV through rotation.** Zoom relies on SceneView re-applying the stored focal
+  length on resize (read from its source, not observed).
+- **Screen transition.** The SurfaceView-under-the-list ordering is reasoned from how
+  SurfaceView composites; a one-frame black flash on entering or a brief second Filament
+  engine while re-opening during an exit are possible and unmeasured.
+- **Tests are thin.** `CameraMath` and `OrbitRig` have JVM unit tests. `LocalCostEngine`
+  and `Triangulator` are pure and testable but still have none.
 
 ---
 

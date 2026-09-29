@@ -1,5 +1,17 @@
 package com.threexdezine.android.ui.walk
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -27,12 +39,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.threexdezine.android.data.ApplyTarget
@@ -42,8 +56,10 @@ import com.threexdezine.android.data.model.DesignMaterial
 import com.threexdezine.android.data.model.Project
 import com.threexdezine.android.data.model.Surface
 import com.threexdezine.android.data.targetsFor
+import com.threexdezine.android.ui.Motion
 import com.threexdezine.android.ui.formatMoney
 import com.threexdezine.android.ui.swatchColor
+import kotlinx.coroutines.launch
 
 /**
  * Browse the catalog by surface and apply a material live.
@@ -74,7 +90,10 @@ fun MaterialSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .navigationBarsPadding(),
+                .navigationBarsPadding()
+                // Switching surface changes how many targets and materials there are;
+                // let the sheet grow or shrink rather than jump.
+                .animateContentSize(tween(Motion.SHORT_MS + 80, easing = FastOutSlowInEasing)),
         ) {
             Text("Materials", style = MaterialTheme.typography.headlineSmall)
 
@@ -110,7 +129,11 @@ fun MaterialSheet(
                 }
             }
 
-            if (materials.isEmpty()) {
+            AnimatedVisibility(
+                visible = materials.isEmpty(),
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
                 Text(
                     "No catalog material declares ${surface.label.lowercase()} in " +
                         "applicableSurfaces.",
@@ -126,6 +149,7 @@ fun MaterialSheet(
             ) {
                 items(materials, key = { it.id }) { material ->
                     MaterialRow(
+                        modifier = Modifier.animateItem(),
                         material = material,
                         currency = project.currency,
                         selected = material.id == selectedId,
@@ -140,19 +164,41 @@ fun MaterialSheet(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MaterialRow(
+    modifier: Modifier = Modifier,
     material: DesignMaterial,
     currency: String,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        colors = if (selected) {
-            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    // Selected state eases in; a tap gives a brief press-in "pulse" so it is obvious
+    // which card took effect even before the new price lands.
+    val container by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
         } else {
-            CardDefaults.cardColors()
+            CardDefaults.cardColors().containerColor
         },
+        animationSpec = tween(Motion.SHORT_MS + 100),
+        label = "cardContainer",
+    )
+    val pulse = remember { Animatable(1f) }
+    val scope = rememberCoroutineScope()
+    val tap = {
+        scope.launch {
+            pulse.animateTo(0.97f, tween(90, easing = FastOutSlowInEasing))
+            pulse.animateTo(1f, tween(Motion.SHORT_MS, easing = FastOutSlowInEasing))
+        }
+        onClick()
+    }
+    Card(
+        onClick = tap,
+        modifier = modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = pulse.value
+                scaleY = pulse.value
+            },
+        colors = CardDefaults.cardColors(containerColor = container),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -184,8 +230,16 @@ private fun MaterialRow(
                 )
             }
             AssistChip(
-                onClick = onClick,
-                label = { Text(if (selected) "Applied" else "Apply") },
+                onClick = tap,
+                label = {
+                    AnimatedContent(
+                        targetState = selected,
+                        transitionSpec = {
+                            fadeIn(tween(Motion.SHORT_MS)) togetherWith fadeOut(tween(Motion.SHORT_MS))
+                        },
+                        label = "applyLabel",
+                    ) { isSelected -> Text(if (isSelected) "Applied" else "Apply") }
+                },
             )
         }
     }

@@ -1,7 +1,15 @@
 package com.threexdezine.android.ui.walk
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,12 +19,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemGestures
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,12 +44,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.threexdezine.android.AppContainer
 import com.threexdezine.android.data.ApplyTarget
@@ -40,12 +60,18 @@ import com.threexdezine.android.data.local.BundledAssets
 import com.threexdezine.android.data.model.Catalog
 import com.threexdezine.android.data.model.CostBreakdown
 import com.threexdezine.android.data.model.Project
+import com.threexdezine.android.render.CameraMath
+import com.threexdezine.android.render.CameraPose
 import com.threexdezine.android.render.CameraRig
+import com.threexdezine.android.render.OrbitRig
 import com.threexdezine.android.render.HouseBuilder
 import com.threexdezine.android.render.MaterialFactory
 import com.threexdezine.android.render.RenderTuning
 import com.threexdezine.android.render.SceneController
+import com.threexdezine.android.ui.Motion
+import com.threexdezine.android.ui.animatedDouble
 import com.threexdezine.android.ui.formatMoney
+import com.threexdezine.android.ui.tabular
 import io.github.sceneview.SceneView
 import io.github.sceneview.environment.Environment
 import io.github.sceneview.rememberCameraNode
@@ -57,6 +83,7 @@ import io.github.sceneview.rememberRenderer
 import io.github.sceneview.rememberScene
 import io.github.sceneview.rememberView
 import kotlinx.coroutines.isActive
+import kotlin.math.abs
 
 /**
  * The 3D walkthrough.
@@ -82,6 +109,12 @@ import kotlinx.coroutines.isActive
  * thread and will visibly stall. A loading overlay stays up until it returns; this is
  * expected, not a bug, and is why the bundled HDRI is the smallest of the three in
  * `web/public/hdri/`.
+ *
+ * CAMERA: [CameraDirector] owns the walk ([CameraRig]) and overview ([OrbitRig]) cameras
+ * and every eased move between them. Zoom is a lens change, expressed as
+ * `cameraNode.focalLength`, because SceneView re-applies the stored focal length on
+ * every surface resize — a one-off `setProjection(fov, …)` would be overwritten the
+ * first time the phone rotates.
  *
  * NATIVE LIFETIME: everything created here is destroyed in DisposableEffects, in
  * reverse order of creation. SceneView only frees what SceneView allocated.
@@ -116,6 +149,28 @@ fun WalkthroughScreen(
         CameraRig(startPose.first, startPose.second, startPose.third)
     }
     val cameraNode = rememberCameraNode(engine)
+    val bounds = remember(project.id) { HouseBuilder.planBounds(project) }
+    val orbit = remember(bounds) { OrbitRig(bounds) }
+    val scope = rememberCoroutineScope()
+    val director = remember(rig, orbit) {
+        // Last focal length written, so an unchanged lens is not re-projected every frame.
+        var lastFocalMm = Double.NaN
+        CameraDirector(rig, orbit, scope) { pose: CameraPose ->
+            runCatching {
+                cameraNode.position = pose.position()
+                cameraNode.quaternion = pose.quaternion()
+                val focal = CameraMath.focalLengthMmForVerticalFov(pose.fovDeg)
+                if (lastFocalMm.isNaN() || abs(focal - lastFocalMm) > 1e-3) {
+                    // CameraNode.focalLength's setter re-projects with the CURRENT
+                    // viewport aspect, and SceneView calls updateProjection() again on
+                    // every resize, so aspect stays right through rotation.
+                    cameraNode.focalLength = focal
+                    lastFocalMm = focal
+                }
+            }
+            renderInvalidator.requestRender()
+        }
+    }
 
     val materialFactory = remember(engine) {
         MaterialFactory(
@@ -136,12 +191,7 @@ fun WalkthroughScreen(
     var strafe by remember { mutableStateOf(0f) }
     var forward by remember { mutableStateOf(0f) }
 
-    fun syncCamera() {
-        runCatching {
-            cameraNode.position = rig.position()
-            cameraNode.quaternion = rig.quaternion()
-        }
-    }
+    fun syncCamera() = director.sync()
 
     // --- Filament View tuning. Owns the ColorGrading it creates. -----------------
     DisposableEffect(view) {
@@ -153,6 +203,10 @@ fun WalkthroughScreen(
     // --- Image-based lighting. Blocks the loading overlay because it hitches. -----
     LaunchedEffect(engine) {
         syncCamera()
+        // Let the loading overlay reach the screen before the blocking prefilter starts,
+        // otherwise the hitch lands before the first frame and the user sees nothing.
+        withFrameNanos { }
+        withFrameNanos { }
         val loaded = runCatching {
             environmentLoader.createHDREnvironment(assetFileLocation = BundledAssets.HDRI_FILE)
         }.getOrNull()
@@ -183,6 +237,7 @@ fun WalkthroughScreen(
     val moving = strafe != 0f || forward != 0f
     LaunchedEffect(moving) {
         if (!moving) return@LaunchedEffect
+        director.cancel()
         var previous = 0L
         while (isActive) {
             withFrameNanos { now ->
@@ -201,18 +256,18 @@ fun WalkthroughScreen(
         onDispose { controller.destroy() }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    val loading = !sceneReady || !environmentReady
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .onSizeChanged { director.onViewSize(it.width, it.height) },
+    ) {
         SceneView(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(rig) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        rig.look(dragAmount.x, dragAmount.y)
-                        syncCamera()
-                        renderInvalidator.requestRender()
-                    }
-                },
+                .cameraGestures(director.gestures),
             engine = engine,
             view = view,
             renderer = renderer,
@@ -236,35 +291,35 @@ fun WalkthroughScreen(
             costPending = costPending,
             onBack = onBack,
             onOpenSettings = onOpenSettings,
-            onTeleport = { x, z, lookX, lookZ ->
-                rig.teleport(x, z)
-                rig.faceTowards(lookX, lookZ)
-                syncCamera()
-                renderInvalidator.requestRender()
+            mode = director.mode,
+            onToggleMode = {
+                // Releasing the stick is not guaranteed when its composable leaves.
+                strafe = 0f; forward = 0f
+                director.toggleMode()
             },
+            onTeleport = { x, z, lookX, lookZ -> director.teleport(x, z, lookX, lookZ) },
         )
 
         BottomControls(
             modifier = Modifier.align(Alignment.BottomStart),
+            mode = director.mode,
             onAxes = { s, f -> strafe = s; forward = f },
-            onRise = { delta ->
-                rig.raise(delta)
-                syncCamera()
-                renderInvalidator.requestRender()
+            onRise = { delta -> director.raise(delta) },
+            onZoomIn = director::zoomIn,
+            onZoomOut = director::zoomOut,
+            onFrameHouse = {
+                strafe = 0f; forward = 0f
+                director.frameHouse()
             },
             onMaterials = { showMaterials = true },
             onCost = { showCost = true },
         )
 
-        if (!sceneReady || !environmentReady) {
-            LoadingOverlay(
-                message = if (!environmentReady) {
-                    "Prefiltering the HDR environment…"
-                } else {
-                    "Building the house shell…"
-                },
-            )
-        }
+        LoadingOverlay(
+            visible = loading,
+            environmentReady = environmentReady,
+            sceneReady = sceneReady,
+        )
     }
 
     if (showMaterials) {
@@ -296,12 +351,15 @@ private fun TopOverlay(
     costPending: Boolean,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
+    mode: CameraMode,
+    onToggleMode: () -> Unit,
     onTeleport: (Float, Float, Float, Float) -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
+            .windowInsetsPadding(sideInsets())
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
         Row(
@@ -314,15 +372,33 @@ private fun TopOverlay(
             TextButton(onClick = onBack) { Text("Back", color = Color.White) }
             Column(modifier = Modifier.weight(1f)) {
                 Text(project.name, color = Color.White, style = MaterialTheme.typography.titleSmall)
+                val shownTotal = cost?.let { animatedDouble(it.total) }
                 Text(
                     text = when {
-                        costPending -> "Pricing…"
-                        cost != null -> "${formatMoney(cost.total, cost.currency)} buffered"
+                        costPending && cost == null -> "Pricing…"
+                        cost != null && shownTotal != null ->
+                            "${formatMoney(shownTotal, cost.currency)} buffered"
                         else -> "—"
                     },
-                    color = Color.White.copy(alpha = 0.8f),
-                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = if (costPending) 0.6f else 0.8f),
+                    style = MaterialTheme.typography.labelSmall.tabular(),
                 )
+            }
+            // Walk <-> Orbit. The label names the mode you will switch TO.
+            TextButton(onClick = onToggleMode) {
+                AnimatedContent(
+                    targetState = mode,
+                    transitionSpec = {
+                        fadeIn(tween(Motion.SHORT_MS)) togetherWith fadeOut(tween(Motion.SHORT_MS))
+                    },
+                    label = "modeLabel",
+                ) { m ->
+                    Text(
+                        if (m == CameraMode.WALK) "Overview" else "Walk",
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
             TextButton(onClick = onOpenSettings) { Text("Backend", color = Color.White) }
         }
@@ -343,7 +419,7 @@ private fun TopOverlay(
                         onClick = {
                             // Stand in the room's centroid and look at the first corner,
                             // which reliably gives a view down the room rather than into
-                            // the nearest wall.
+                            // the nearest wall. From the overview this glides you in.
                             val target = room.polygon.first()
                             onTeleport(
                                 cx.toFloat(),
@@ -360,29 +436,58 @@ private fun TopOverlay(
     }
 }
 
+/**
+ * Display cutouts and the edge back-gesture zones, horizontally. Controls hugging the
+ * left or right edge would otherwise sit where a swipe means "back".
+ */
+@Composable
+private fun sideInsets(): WindowInsets =
+    WindowInsets.safeDrawing.union(WindowInsets.systemGestures).only(WindowInsetsSides.Horizontal)
+
 @Composable
 private fun BottomControls(
     modifier: Modifier = Modifier,
+    mode: CameraMode,
     onAxes: (Float, Float) -> Unit,
     onRise: (Float) -> Unit,
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit,
+    onFrameHouse: () -> Unit,
     onMaterials: () -> Unit,
     onCost: () -> Unit,
 ) {
+    val walking = mode == CameraMode.WALK
     Box(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                .windowInsetsPadding(sideInsets())
                 .padding(16.dp),
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            MoveJoystick(onAxes = onAxes)
+            // The stick only means something in walk mode; in the overview a drag orbits.
+            AnimatedVisibility(
+                visible = walking,
+                enter = fadeIn(tween(Motion.SHORT_MS)),
+                exit = fadeOut(tween(Motion.SHORT_MS)),
+            ) {
+                MoveJoystick(onAxes = onAxes)
+            }
+            if (!walking) Box(Modifier.width(1.dp))
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { onRise(-0.15f) }) { Text("Lower", color = Color.White) }
-                    TextButton(onClick = { onRise(0.15f) }) { Text("Raise", color = Color.White) }
+                AnimatedVisibility(
+                    visible = walking,
+                    enter = fadeIn(tween(Motion.SHORT_MS)) + expandVertically(tween(Motion.SHORT_MS)),
+                    exit = fadeOut(tween(Motion.SHORT_MS)) + shrinkVertically(tween(Motion.SHORT_MS)),
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { onRise(-0.15f) }) { Text("Lower", color = Color.White) }
+                        TextButton(onClick = { onRise(0.15f) }) { Text("Raise", color = Color.White) }
+                    }
                 }
+                ZoomCluster(onZoomIn = onZoomIn, onZoomOut = onZoomOut, onFrameHouse = onFrameHouse)
                 Button(onClick = onCost) { Text("Cost") }
                 Button(onClick = onMaterials) { Text("Materials") }
             }
@@ -390,20 +495,74 @@ private fun BottomControls(
     }
 }
 
+/** Zoom out, zoom in, frame the house. Each one eases the camera rather than jumping. */
 @Composable
-private fun LoadingOverlay(message: String) {
-    Box(
-        modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.72f)),
-        contentAlignment = Alignment.Center,
+private fun ZoomCluster(onZoomIn: () -> Unit, onZoomOut: () -> Unit, onFrameHouse: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator(color = Color.White)
-            Text(
-                message,
-                color = Color.White,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 12.dp),
-            )
+        TextButton(onClick = onZoomOut, modifier = Modifier.size(48.dp)) {
+            Text("−", color = Color.White, style = MaterialTheme.typography.titleLarge)
+        }
+        TextButton(onClick = onZoomIn, modifier = Modifier.size(48.dp)) {
+            Text("+", color = Color.White, style = MaterialTheme.typography.titleLarge)
+        }
+        FilledTonalButton(onClick = onFrameHouse) { Text("Frame house") }
+    }
+}
+
+/**
+ * Covers the scene while the HDR prefilter and the shell build run, then fades out
+ * instead of vanishing. Progress is by stage (2 steps), because the prefilter blocks
+ * the main thread and an indeterminate spinner would simply freeze mid-turn.
+ */
+@Composable
+private fun LoadingOverlay(visible: Boolean, environmentReady: Boolean, sceneReady: Boolean) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(0)),
+        exit = fadeOut(tween(450)),
+    ) {
+        val steps = (if (environmentReady) 1 else 0) + (if (sceneReady) 1 else 0)
+        val progress by animateFloatAsState(
+            targetValue = (steps + 0.35f) / 2.35f,
+            animationSpec = tween(Motion.CAMERA_MS),
+            label = "loadingProgress",
+        )
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.72f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                AnimatedContent(
+                    targetState = if (!environmentReady) {
+                        "Prefiltering the HDR environment…"
+                    } else if (!sceneReady) {
+                        "Building the house shell…"
+                    } else {
+                        "Ready"
+                    },
+                    transitionSpec = {
+                        fadeIn(tween(Motion.SHORT_MS)) togetherWith fadeOut(tween(Motion.SHORT_MS))
+                    },
+                    label = "loadingMessage",
+                ) { message ->
+                    Text(
+                        message,
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.padding(top = 12.dp).width(180.dp),
+                    color = Color.White,
+                    trackColor = Color.White.copy(alpha = 0.2f),
+                )
+            }
         }
     }
 }

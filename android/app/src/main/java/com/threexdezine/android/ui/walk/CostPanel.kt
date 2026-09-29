@@ -1,6 +1,18 @@
 package com.threexdezine.android.ui.walk
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +30,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -25,10 +38,13 @@ import com.threexdezine.android.data.DataOrigin
 import com.threexdezine.android.data.model.Catalog
 import com.threexdezine.android.data.model.CostBreakdown
 import com.threexdezine.android.data.model.CostLineItem
+import com.threexdezine.android.ui.Motion
+import com.threexdezine.android.ui.animatedDouble
 import com.threexdezine.android.ui.formatArea
 import com.threexdezine.android.ui.formatMoney
 import com.threexdezine.android.ui.formatPercent
 import com.threexdezine.android.ui.formatQuantity
+import com.threexdezine.android.ui.tabular
 
 /**
  * The itemised breakdown and the buffered total from `POST /api/cost/estimate`.
@@ -37,6 +53,10 @@ import com.threexdezine.android.ui.formatQuantity
  * project-wide contingency are different things and a user deserves to see which is
  * which. The scope disclaimer ("material supply only, no labour") is repeated here
  * because a cost tool that silently omits labour is worse than no cost tool.
+ *
+ * Motion: the totals count to their new value when a material is applied (tabular
+ * figures, so the digits do not shimmy), and each line item carries a thin bar showing
+ * its share of the materials subtotal, which grows or shrinks to the new proportion.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,7 +81,9 @@ fun CostPanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text("Estimated cost", style = MaterialTheme.typography.headlineSmall)
-                if (pending) CircularProgressIndicator(Modifier.padding(4.dp))
+                AnimatedVisibility(visible = pending, enter = fadeIn(), exit = fadeOut()) {
+                    CircularProgressIndicator(Modifier.padding(4.dp))
+                }
             }
 
             if (cost == null) {
@@ -89,9 +111,12 @@ fun CostPanel(
                 }
             }
 
+            val total = animatedDouble(cost.total)
+            val subtotal = animatedDouble(cost.materialsSubtotal)
+            val contingency = animatedDouble(cost.contingencyAmount)
             Text(
-                formatMoney(cost.total, cost.currency),
-                style = MaterialTheme.typography.displaySmall,
+                formatMoney(total, cost.currency),
+                style = MaterialTheme.typography.displaySmall.tabular(),
                 fontWeight = FontWeight.Bold,
             )
             Text(
@@ -101,13 +126,13 @@ fun CostPanel(
             )
 
             Column(Modifier.padding(vertical = 12.dp)) {
-                TotalRow("Materials subtotal", formatMoney(cost.materialsSubtotal, cost.currency))
+                TotalRow("Materials subtotal", formatMoney(subtotal, cost.currency))
                 TotalRow(
                     "Contingency (${formatPercent(cost.contingencyBuffer)})",
-                    formatMoney(cost.contingencyAmount, cost.currency),
+                    formatMoney(contingency, cost.currency),
                 )
                 HorizontalDivider(Modifier.padding(vertical = 6.dp))
-                TotalRow("Total", formatMoney(cost.total, cost.currency), bold = true)
+                TotalRow("Total", formatMoney(total, cost.currency), bold = true)
             }
 
             Text("Measured quantities", style = MaterialTheme.typography.titleSmall)
@@ -130,7 +155,16 @@ fun CostPanel(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
             ) {
                 items(cost.lineItems, key = { it.surface + it.materialId + it.location }) { item ->
-                    LineItemRow(item, cost.currency)
+                    LineItemRow(
+                        item = item,
+                        currency = cost.currency,
+                        share = if (cost.materialsSubtotal > 0.0) {
+                            (item.subtotal / cost.materialsSubtotal).toFloat()
+                        } else {
+                            0f
+                        },
+                        modifier = Modifier.animateItem(),
+                    )
                 }
                 item {
                     Text(
@@ -158,7 +192,7 @@ private fun TotalRow(label: String, value: String, bold: Boolean = false) {
         )
         Text(
             value,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyMedium.tabular(),
             fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
         )
     }
@@ -177,8 +211,19 @@ private fun Quantity(label: String, value: Double) {
 }
 
 @Composable
-private fun LineItemRow(item: CostLineItem, currency: String) {
-    Column(Modifier.fillMaxWidth()) {
+private fun LineItemRow(
+    item: CostLineItem,
+    currency: String,
+    share: Float,
+    modifier: Modifier = Modifier,
+) {
+    val shownSubtotal = animatedDouble(item.subtotal)
+    val shownShare by animateFloatAsState(
+        targetValue = share.coerceIn(0f, 1f),
+        animationSpec = tween(Motion.NUMBER_MS, easing = FastOutSlowInEasing),
+        label = "lineShare",
+    )
+    Column(modifier.fillMaxWidth().animateContentSize()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -188,7 +233,25 @@ private fun LineItemRow(item: CostLineItem, currency: String) {
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
-            Text(formatMoney(item.subtotal, currency), style = MaterialTheme.typography.bodyMedium)
+            Text(
+                formatMoney(shownSubtotal, currency),
+                style = MaterialTheme.typography.bodyMedium.tabular(),
+            )
+        }
+        // Share of the materials subtotal.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 3.dp)
+                .height(3.dp)
+                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(2.dp)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(shownShare)
+                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)),
+            )
         }
         Text(
             "${item.location} · " +
