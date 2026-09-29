@@ -80,6 +80,15 @@ kotlin {
     }
 }
 
+// kotlin-math 1.8.0's JVM classes are Java 21 bytecode (class-file major 65). D8 handles
+// that for the APK, but plain JVM unit tests load them directly, so the test JVM must be
+// 21 even though the app itself targets 17.
+tasks.withType<Test>().configureEach {
+    javaLauncher.set(
+        javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) },
+    )
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
