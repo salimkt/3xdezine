@@ -80,3 +80,28 @@ export function IconAndroid({ size = 14, className }: IconProps) {
     </svg>
   );
 }
+
+export function IconPlus({ size = 14, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M8 3.5v9M3.5 8h9" />
+    </svg>
+  );
+}
+
+export function IconMinus({ size = 14, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M3.5 8h9" />
+    </svg>
+  );
+}
+
+/** Four corner brackets: "frame everything". */
+export function IconFit({ size = 14, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M2.8 6V2.8H6M10 2.8h3.2V6M13.2 10v3.2H10M6 13.2H2.8V10" />
+    </svg>
+  );
+}

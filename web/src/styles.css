@@ -85,6 +85,10 @@
 
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
   --dur: 130ms;
+  /* Zoom steps, layout changes, selection. Mirrored as DUR.med in lib/motion.ts. */
+  --dur-med: 260ms;
+  /* Numbers counting to a new value, one-shot highlights. DUR.slow. */
+  --dur-slow: 400ms;
 
   color-scheme: dark;
 }
@@ -158,18 +162,64 @@ h3 {
   height: 100%;
 }
 
+/*
+ * Three fixed tracks in every view, so switching Plan / 3D / Split interpolates
+ * the track sizes instead of jumping. A hidden pane's track collapses to 0fr.
+ * The panes are separated by an outset shadow rather than a grid gap: a gap
+ * would leave a doubled line beside a collapsed track.
+ */
 .workspace {
   flex: 1;
   min-height: 0;
   display: grid;
-  gap: 1px;
-  background: var(--line-soft);
-  grid-template-columns: 1fr 1.08fr var(--rail-width);
+  gap: 0;
+  background: var(--n-1);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr) var(--rail-width);
+  transition: grid-template-columns var(--dur-med) var(--ease);
 }
 
-.workspace-2d,
+.workspace-2d {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0fr) var(--rail-width);
+}
+
 .workspace-3d {
-  grid-template-columns: 1fr var(--rail-width);
+  grid-template-columns: minmax(0, 0fr) minmax(0, 1fr) var(--rail-width);
+}
+
+.pane-plan {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.pane-3d {
+  grid-column: 2;
+  grid-row: 1;
+  box-shadow: -1px 0 0 var(--line-soft);
+}
+
+.rail {
+  grid-column: 3;
+  grid-row: 1;
+  position: relative;
+  z-index: 1;
+  box-shadow: -1px 0 0 var(--line-soft);
+}
+
+.pane-body {
+  position: absolute;
+  inset: 0;
+  container-type: inline-size;
+}
+
+/* Mid-transition the contents keep their final (or last) width and the pane
+   clips them: plan anchored left, render anchored right, against the edges
+   that do not move. */
+.pane-plan .pane-body-frozen {
+  right: auto;
+}
+
+.pane-3d .pane-body-frozen {
+  left: auto;
 }
 
 .pane {
@@ -182,6 +232,12 @@ h3 {
 
 .pane-3d {
   background: var(--n-0);
+}
+
+/* Orbit sets this on its own element but resets it on dispose; walk mode's
+   look-drag and orbit's pinch both need the browser to keep its hands off. */
+.pane-3d canvas {
+  touch-action: none;
 }
 
 .rail {
@@ -821,6 +877,40 @@ input[type='range']:active::-webkit-slider-thumb {
   display: block;
 }
 
+.plan-svg-grab,
+.plan-svg-grab * {
+  cursor: grab !important;
+}
+
+.plan-svg-panning,
+.plan-svg-panning * {
+  cursor: grabbing !important;
+}
+
+/* Selection overlays fade in rather than pop. */
+.plan-sel-in {
+  animation: fade-in var(--dur-med) var(--ease) both;
+}
+
+/* A one-shot flash on the surface a material was just applied to. */
+.plan-pulse {
+  fill: #fff;
+  stroke: var(--accent);
+  pointer-events: none;
+  animation: plan-pulse 720ms var(--ease) forwards;
+}
+
+@keyframes plan-pulse {
+  0% {
+    fill-opacity: 0.34;
+    stroke-opacity: 1;
+  }
+  100% {
+    fill-opacity: 0;
+    stroke-opacity: 0;
+  }
+}
+
 .plan-wall {
   cursor: pointer;
   transition: fill var(--dur) var(--ease);
@@ -937,6 +1027,103 @@ input[type='range']:active::-webkit-slider-thumb {
   border-radius: 1px;
   margin-right: 5px;
   vertical-align: 1px;
+}
+
+/* ------------------------------------------------------------ zoom cluster */
+
+.zoom-cluster {
+  position: absolute;
+  right: 12px;
+  bottom: 11px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border-radius: var(--r-md);
+  background: rgba(15, 18, 23, 0.84);
+  border: 1px solid var(--line-soft);
+  box-shadow: var(--shadow-2);
+  backdrop-filter: blur(8px);
+  animation: fade-in var(--dur-med) var(--ease) both;
+}
+
+.zoom-btn,
+.zoom-readout {
+  appearance: none;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  min-width: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+
+.zoom-btn:hover:not(:disabled),
+.zoom-readout:hover {
+  background: var(--n-5);
+  color: var(--text);
+}
+
+.zoom-btn:active:not(:disabled),
+.zoom-readout:active {
+  background: var(--n-4);
+}
+
+.zoom-btn:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+.zoom-readout {
+  min-width: 48px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.zoom-fit span {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+
+.zoom-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--line);
+}
+
+@media (pointer: coarse) {
+  .zoom-btn,
+  .zoom-readout {
+    height: 34px;
+    min-width: 34px;
+  }
+}
+
+/* A narrow plan pane cannot fit the legend and the zoom cluster on one line. */
+@container (max-width: 460px) {
+  .plan-legend {
+    top: 10px;
+    bottom: auto;
+  }
+}
+
+/* Phone width: the plan needs every pixel; the legend is the first to go. */
+@container (max-width: 400px) {
+  .plan-legend {
+    display: none;
+  }
 }
 
 .plan-empty {
@@ -1123,9 +1310,37 @@ input[type='range']:active::-webkit-slider-thumb {
   }
 }
 
+.viewport-hud {
+  /* Leave the bottom-right corner to the zoom cluster. */
+  max-width: calc(100% - 200px);
+}
+
+.viewport-hud .hud-hint {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.viewport-hud span {
+  flex: 0 0 auto;
+}
+
+.viewport-hud span.hud-hint {
+  flex: 0 1 auto;
+}
+
 .viewport-hud span + span {
   padding-left: 9px;
   border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* The HUD shares the bottom edge with the zoom cluster; in a narrow render
+   pane the driving hint goes first. */
+@container (max-width: 400px) {
+  .viewport-hud .hud-hint {
+    display: none;
+  }
 }
 
 /* ------------------------------------------------------------- palette */
@@ -1233,6 +1448,26 @@ input[type='range']:active::-webkit-slider-thumb {
   border-color: var(--line-strong);
   transform: translateY(-1px);
   box-shadow: var(--shadow-2);
+}
+
+/* One-shot ring on the card just applied: cause, then effect in plan and 3D. */
+.swatch-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+  background: rgba(91, 211, 227, 0.14);
+  animation: swatch-pulse 720ms var(--ease) forwards;
+}
+
+@keyframes swatch-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 .swatch:disabled {
@@ -1535,7 +1770,8 @@ input[type='range']:active::-webkit-slider-thumb {
 .stacked-seg {
   height: 100%;
   min-width: 2px;
-  transition: width 260ms var(--ease), opacity var(--dur) var(--ease);
+  /* Same clock as the figures counting above it. */
+  transition: width var(--dur-slow) var(--ease), opacity var(--dur) var(--ease);
   border-right: 1px solid rgba(10, 12, 15, 0.55);
 }
 
@@ -2144,6 +2380,13 @@ input[type='range']:active::-webkit-slider-thumb {
     grid-template-columns: 1fr;
     grid-auto-rows: minmax(260px, auto);
     overflow-y: auto;
+    transition: none;
+  }
+  .pane-plan,
+  .pane-3d,
+  .rail {
+    grid-column: auto;
+    grid-row: auto;
   }
   .rail {
     overflow: visible;

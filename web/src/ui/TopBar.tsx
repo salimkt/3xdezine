@@ -5,6 +5,7 @@ import { useCost } from './CostPanel';
 import { money } from '../lib/format';
 import { AndroidMenu } from './AndroidApp';
 import { IconChevron } from './icons';
+import { useAnimatedNumber } from '../lib/motion';
 
 export function TopBar() {
   const project = useStore((s) => s.project);
@@ -18,6 +19,7 @@ export function TopBar() {
   const resetProject = useStore((s) => s.resetProject);
   const catalogSource = useStore((s) => s.catalogSource);
   const cost = useCost();
+  const total = useAnimatedNumber(cost.total);
 
   const [hdris, setHdris] = useState<HdriEntry[]>(EMPTY_MANIFEST.hdris);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -89,7 +91,7 @@ export function TopBar() {
 
       <div className="headline-cost">
         <span className="headline-label">Buffered total</span>
-        <span className="headline-value mono">{money(cost.total, cost.currency)}</span>
+        <span className="headline-value mono">{money(total, cost.currency)}</span>
       </div>
 
       <span

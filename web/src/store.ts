@@ -54,6 +54,11 @@ interface StoreState {
   /** False until the first frame has actually been presented. */
   rendererReady: boolean;
   render: RenderSettings;
+  /**
+   * The most recent material application, so the UI can briefly mark the
+   * surface and the card that changed. `at` is a fresh token per application.
+   */
+  lastApplied: AppliedMaterial | null;
 
   // actions
   select: (kind: SelectionKind, id: string | null) => void;
@@ -71,6 +76,16 @@ interface StoreState {
   setRendererReady: () => void;
   patchRender: (patch: Partial<RenderSettings>) => void;
 }
+
+export interface AppliedMaterial {
+  kind: Exclude<SelectionKind, null>;
+  id: string | null;
+  surface: SurfaceTarget;
+  materialId: string;
+  at: number;
+}
+
+let appliedSeq = 0;
 
 const EPS = 1e-6;
 const sameP = (a: Vec2, b: Vec2) => Math.abs(a.x - b.x) < EPS && Math.abs(a.z - b.z) < EPS;
@@ -119,6 +134,7 @@ export const useStore = create<StoreState>((set, get) => ({
     showGrid: false,
     showCeilings: false,
   },
+  lastApplied: null,
 
   select: (kind, id) =>
     set((state) => {
@@ -140,24 +156,36 @@ export const useStore = create<StoreState>((set, get) => ({
       const project = structuredClone(state.project);
       const floor = project.floors[0];
       if (!floor) return {};
+      const applied = (): Partial<StoreState> => ({
+        project,
+        lastApplied: selection.kind
+          ? {
+              kind: selection.kind,
+              id: selection.id,
+              surface: surfaceTarget,
+              materialId,
+              at: ++appliedSeq,
+            }
+          : null,
+      });
 
       if (selection.kind === 'roof') {
         if (project.roof) project.roof.materialId = materialId;
-        return { project };
+        return applied();
       }
       if (selection.kind === 'room') {
         const room = floor.rooms.find((r) => r.id === selection.id);
         if (!room) return {};
         if (surfaceTarget === 'FLOOR') room.floorMaterialId = materialId;
         if (surfaceTarget === 'CEILING') room.ceilingMaterialId = materialId;
-        return { project };
+        return applied();
       }
       if (selection.kind === 'wall') {
         const wall = floor.walls.find((w) => w.id === selection.id);
         if (!wall) return {};
         if (surfaceTarget === 'EXTERIOR_WALL') wall.exteriorMaterialId = materialId;
         else wall.interiorMaterialId = materialId;
-        return { project };
+        return applied();
       }
       return {};
     }),

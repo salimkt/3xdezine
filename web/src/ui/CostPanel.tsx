@@ -4,6 +4,7 @@ import type { CostBreakdown } from '@shared/types';
 import { useStore } from '../store';
 import { money, moneyPrecise, percent, quantity } from '../lib/format';
 import { IconChevron } from './icons';
+import { useAnimatedNumber } from '../lib/motion';
 
 /**
  * The cost engine is imported from `shared/` and run locally on every edit, so
@@ -56,6 +57,13 @@ export function CostPanel() {
   const floorArea = cost.quantities.floorAreaSqm;
   const perSqm = floorArea > 0 ? cost.total / floorArea : 0;
 
+  // The figures count to their new value, so a material swap is seen to
+  // reprice the house rather than silently changing a number.
+  const total = useAnimatedNumber(cost.total);
+  const subtotal = useAnimatedNumber(cost.materialsSubtotal);
+  const contingency = useAnimatedNumber(cost.contingencyAmount);
+  const perSqmShown = useAnimatedNumber(perSqm);
+
   return (
     <div className="panel cost-panel">
       <header className="panel-header">
@@ -73,10 +81,10 @@ export function CostPanel() {
           <span>Buffered total</span>
           <span>{percent(cost.contingencyBuffer)} buffer</span>
         </div>
-        <div className="cost-hero-value">{money(cost.total, currency)}</div>
+        <div className="cost-hero-value">{money(total, currency)}</div>
         {perSqm > 0 && (
           <div className="cost-hero-sub">
-            <b className="mono">{money(perSqm, currency)}</b> per m² of floor ·{' '}
+            <b className="mono">{money(perSqmShown, currency)}</b> per m² of floor ·{' '}
             <b className="mono">{floorArea.toFixed(1)} m²</b> measured
           </div>
         )}
@@ -88,7 +96,7 @@ export function CostPanel() {
             Materials subtotal
             <small>includes per-material wastage</small>
           </span>
-          <span className="cost-value mono">{moneyPrecise(cost.materialsSubtotal, currency)}</span>
+          <span className="cost-value mono">{moneyPrecise(subtotal, currency)}</span>
         </div>
         <div className="cost-row">
           <span className="cost-label">
@@ -96,12 +104,12 @@ export function CostPanel() {
             <small>project-wide commercial margin</small>
           </span>
           <span className="cost-value mono cost-value-add">
-            + {moneyPrecise(cost.contingencyAmount, currency)}
+            + {moneyPrecise(contingency, currency)}
           </span>
         </div>
         <div className="cost-row cost-row-sum">
           <span className="cost-label">Buffered total</span>
-          <span className="cost-value mono cost-value-sum">{moneyPrecise(cost.total, currency)}</span>
+          <span className="cost-value mono cost-value-sum">{moneyPrecise(total, currency)}</span>
         </div>
       </div>
 

@@ -38,6 +38,10 @@ export function MaterialPalette() {
   const setSurfaceTarget = useStore((s) => s.setSurfaceTarget);
   const applyMaterial = useStore((s) => s.applyMaterial);
   const project = useStore((s) => s.project);
+  const lastApplied = useStore((s) => s.lastApplied);
+  // Only applications made while the palette is on screen get the flash.
+  const [mountedAt] = useState(() => useStore.getState().lastApplied?.at ?? 0);
+  const pulse = lastApplied && lastApplied.at > mountedAt ? lastApplied : null;
 
   const [query, setQuery] = useState('');
   const [tier, setTier] = useState<Tier | 'ALL'>('ALL');
@@ -154,6 +158,9 @@ export function MaterialPalette() {
                   </span>
                 )}
               </span>
+              {pulse?.materialId === material.id && (
+                <span key={pulse.at} className="swatch-pulse" aria-hidden />
+              )}
               <span className="swatch-body">
                 <span className="swatch-name">{material.name}</span>
                 <span className="swatch-price mono">
