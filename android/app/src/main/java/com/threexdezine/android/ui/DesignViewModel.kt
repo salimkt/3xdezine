@@ -8,10 +8,14 @@ import com.threexdezine.android.AppContainer
 import com.threexdezine.android.data.ApplyTarget
 import com.threexdezine.android.data.DataOrigin
 import com.threexdezine.android.data.applyMaterial
+import com.threexdezine.android.cost.LocalCostEngine
+import com.threexdezine.android.data.local.PlanTemplate
 import com.threexdezine.android.data.model.Catalog
 import com.threexdezine.android.data.model.CostBreakdown
 import com.threexdezine.android.data.model.Project
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,12 +23,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/** A template tile: the plan plus its on-device buffered estimate (null if it failed). */
+data class TemplateTile(val template: PlanTemplate, val estimatedTotal: Double?)
+
 data class DesignUiState(
     val loading: Boolean = true,
     val catalog: Catalog? = null,
     val catalogOrigin: DataOrigin = DataOrigin.BUNDLED,
     val projects: List<Project> = emptyList(),
     val projectsOrigin: DataOrigin = DataOrigin.BUNDLED,
+    val templates: List<TemplateTile> = emptyList(),
     val openProject: Project? = null,
     val cost: CostBreakdown? = null,
     val costOrigin: DataOrigin = DataOrigin.BUNDLED,
@@ -60,6 +68,14 @@ class DesignViewModel(private val container: AppContainer) : ViewModel() {
             _state.update { it.copy(loading = true, connectionNote = null) }
             val catalog = container.repository.loadCatalog()
             val projects = container.repository.loadProjects()
+            val templates = runCatching { container.repository.loadTemplates() }.getOrDefault(emptyList())
+            // Always the on-device engine: one POST per tile would be eight requests to
+            // decorate a gallery, and the number is labelled "est." on the tile anyway.
+            val tiles = withContext(Dispatchers.Default) {
+                templates.map { t ->
+                    TemplateTile(t, runCatching { LocalCostEngine.estimate(t.project, catalog.value).total }.getOrNull())
+                }
+            }
             _state.update {
                 it.copy(
                     loading = false,
@@ -67,6 +83,7 @@ class DesignViewModel(private val container: AppContainer) : ViewModel() {
                     catalogOrigin = catalog.origin,
                     projects = projects.value,
                     projectsOrigin = projects.origin,
+                    templates = tiles,
                     connectionNote = catalog.error ?: projects.error,
                 )
             }
@@ -89,6 +106,8 @@ class DesignViewModel(private val container: AppContainer) : ViewModel() {
      */
     fun applyMaterial(target: ApplyTarget, materialId: String) {
         val current = _state.value.openProject ?: return
+        // The sheet already refuses at VIEW level; this is the backstop.
+        if (!current.canEditFinishes) return
         _state.update { it.copy(openProject = current.applyMaterial(target, materialId)) }
         scheduleCostEstimate(immediate = false)
     }

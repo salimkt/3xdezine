@@ -18,7 +18,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.threexdezine.android.AppContainer
 import com.threexdezine.android.data.model.Catalog
 import com.threexdezine.android.data.model.Project
-import com.threexdezine.android.ui.projects.ProjectListScreen
+import com.threexdezine.android.ui.home.HomeScreen
 import com.threexdezine.android.ui.walk.WalkthroughScreen
 
 /**
@@ -65,7 +65,7 @@ fun AppRoot(container: AppContainer) {
                 onBack = viewModel::closeProject,
                 onOpenSettings = { showSettings = true },
             )
-            Destination.List -> ProjectListScreen(
+            Destination.List -> HomeScreen(
                 state = state,
                 onOpenProject = viewModel::openProject,
                 onRefresh = viewModel::refresh,

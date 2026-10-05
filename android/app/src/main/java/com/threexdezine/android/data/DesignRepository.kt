@@ -77,6 +77,9 @@ class DesignRepository(
         }
     }
 
+    /** Plan templates are always bundled; the backend is not consulted. */
+    suspend fun loadTemplates(): List<com.threexdezine.android.data.local.PlanTemplate> = bundled.templates()
+
     suspend fun loadProject(id: String): Sourced<Project> = withContext(Dispatchers.IO) {
         if (id == BundledAssets.LOCAL_SAMPLE_ID) {
             return@withContext Sourced(bundled.sampleProject(), DataOrigin.BUNDLED)
@@ -116,10 +119,10 @@ class DesignRepository(
     suspend fun saveProject(project: Project): Result<Project> = withContext(Dispatchers.IO) {
         runCatching {
             val id = project.id
-            if (id == null || id == BundledAssets.LOCAL_SAMPLE_ID) {
+            if (BundledAssets.isLocalId(id)) {
                 api().createProject(project.copy(id = null))
             } else {
-                api().updateProject(id, project)
+                api().updateProject(id!!, project)
             }
         }
     }

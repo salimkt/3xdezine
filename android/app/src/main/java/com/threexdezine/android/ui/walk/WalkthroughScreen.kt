@@ -2,6 +2,7 @@ package com.threexdezine.android.ui.walk
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -10,6 +11,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +53,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -71,6 +76,8 @@ import com.threexdezine.android.render.SceneController
 import com.threexdezine.android.ui.Motion
 import com.threexdezine.android.ui.animatedDouble
 import com.threexdezine.android.ui.formatMoney
+import com.threexdezine.android.ui.home.finishesLockedReason
+import com.threexdezine.android.ui.home.policySummary
 import com.threexdezine.android.ui.tabular
 import io.github.sceneview.SceneView
 import io.github.sceneview.environment.Environment
@@ -258,11 +265,66 @@ fun WalkthroughScreen(
 
     val loading = !sceneReady || !environmentReady
 
+    // --- Build-up intro ------------------------------------------------------------
+    // Opens in the Overview with the walls flat on the slab; once loading is done they
+    // rise (RISE_MS, eased) while the camera swings in and settles on the framed view
+    // (INTRO_MS). Any touch anywhere skips straight to the end state, and with system
+    // animations off it is skipped outright. Render-on-demand: every frame sets the rise,
+    // pushes the camera and requests a render.
+    val intro = remember(project.id) { IntroState() }
+    fun finishIntro() {
+        if (intro.done) return
+        intro.done = true
+        controller.setRise(1f)
+        director.placeOrbit(intro.home ?: director.homeOrbit())
+        renderInvalidator.requestRender()
+    }
+    LaunchedEffect(director) {
+        // Before anything is built: flat walls, camera already outside the house, so
+        // nothing pops when the loading overlay fades.
+        if (!intro.done) {
+            controller.setRise(0f)
+            director.placeOrbit(introStart(director.homeOrbit()))
+        }
+    }
+    LaunchedEffect(loading) {
+        if (loading || intro.done) return@LaunchedEffect
+        val home = director.homeOrbit()
+        intro.home = home
+        if (!Motion.animationsEnabled()) {
+            finishIntro()
+            return@LaunchedEffect
+        }
+        val from = introStart(home)
+        var startNanos = 0L
+        while (isActive && !intro.done) {
+            val now = withFrameNanos { it }
+            if (intro.done) break
+            if (startNanos == 0L) startNanos = now
+            val ms = (now - startNanos) / 1_000_000f
+            controller.setRise(FastOutSlowInEasing.transform((ms / INTRO_RISE_MS).coerceIn(0f, 1f)))
+            val cam = FastOutSlowInEasing.transform((ms / INTRO_TOTAL_MS).coerceIn(0f, 1f))
+            director.placeOrbit(OrbitRig.lerp(from, home, cam))
+            renderInvalidator.requestRender()
+            if (ms >= INTRO_TOTAL_MS) break
+        }
+        finishIntro()
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .onSizeChanged { director.onViewSize(it.width, it.height) },
+            .onSizeChanged { director.onViewSize(it.width, it.height) }
+            // Initial pass: sees every touch (scene, buttons, chips) before the child
+            // handles it, without consuming, so the first touch skips the intro and
+            // still does whatever it was aimed at.
+            .pointerInput(intro) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    finishIntro()
+                }
+            },
     ) {
         SceneView(
             modifier = Modifier
@@ -326,6 +388,7 @@ fun WalkthroughScreen(
         MaterialSheet(
             project = project,
             catalog = catalog,
+            lockedReason = finishesLockedReason(project),
             // The flat colour lands on the next frame; the LaunchedEffect keyed on
             // `project` then re-applies materials and streams in the new texture set.
             onApply = onApplyMaterial,
@@ -343,6 +406,22 @@ fun WalkthroughScreen(
         )
     }
 }
+
+/** Mutable holder for the intro, remembered per project. Main-thread only. */
+private class IntroState {
+    var done = false
+    var home: OrbitRig.State? = null
+}
+
+/** Where the intro camera starts: further out, higher and swung round from [home]. */
+private fun introStart(home: OrbitRig.State): OrbitRig.State = home.copy(
+    yaw = home.yaw - 40f * CameraMath.DEG,
+    elevation = (home.elevation + 18f * CameraMath.DEG).coerceAtMost(OrbitRig.MAX_ELEVATION),
+    distance = home.distance * 1.45f,
+)
+
+private const val INTRO_RISE_MS = 1300f
+private const val INTRO_TOTAL_MS = 1750f
 
 @Composable
 private fun TopOverlay(
@@ -401,6 +480,18 @@ private fun TopOverlay(
                 }
             }
             TextButton(onClick = onOpenSettings) { Text("Backend", color = Color.White) }
+        }
+
+        policySummary(project)?.let { summary ->
+            Text(
+                summary,
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
         }
 
         val rooms = project.groundFloor?.rooms.orEmpty()

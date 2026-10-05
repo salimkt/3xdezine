@@ -2,7 +2,9 @@ package com.threexdezine.android.data.remote
 
 import android.content.Context
 import com.threexdezine.android.BuildConfig
+import com.threexdezine.android.data.model.PlanEdit
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.modules.SerializersModule
 import okhttp3.Cache
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -30,6 +32,12 @@ val AppJson: Json = Json {
     encodeDefaults = true
     isLenient = false
     prettyPrint = false
+    // An unknown PlanEdit `kind` becomes PlanEdit.Unknown instead of failing the whole
+    // project. Verified against kotlinx-serialization 1.11.0: SealedClassSerializer falls
+    // back to the module's polymorphic default for a serial name it does not know.
+    serializersModule = SerializersModule {
+        polymorphicDefaultDeserializer(PlanEdit::class) { PlanEdit.Unknown.serializer() }
+    }
 }
 
 object BackendDefaults {

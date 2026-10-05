@@ -38,6 +38,9 @@ class SceneController(
     private val rendered = mutableListOf<Rendered>()
     private var destroyed = false
 
+    /** Vertical scale of everything above the slab, 0..1. 1 except during the intro. */
+    private var rise = 1f
+
     val surfaceCount: Int get() = rendered.size
     val triangleCount: Int get() = rendered.sumOf { it.part.mesh.indices.size / 3 }
 
@@ -84,6 +87,10 @@ class SceneController(
                     receiveShadows = true,
                 )
                 item.mesh = mesh
+                // A mesh rebuilt mid-intro must not pop up to full height.
+                if (rise < 1f && item.part.ref !is SurfaceRef.RoomFloor) {
+                    mesh?.setVerticalScale(engine, rise)
+                }
                 item.uvScale = uvScale
                 item.materialKey = key
                 changed = true
@@ -116,6 +123,23 @@ class SceneController(
                 .onFailure { Log.w(TAG, "Texture load failed for $id", it) }
                 .getOrDefault(false)
             if (changed) onProgress()
+        }
+    }
+
+    /**
+     * Build-up intro: scales walls, ceilings, doors and furniture vertically about the
+     * floor, leaving the floor slabs alone. [progress] 0 = flat, 1 = built. Applied to
+     * meshes created later too. The caller must request a render afterwards.
+     */
+    fun setRise(progress: Float) {
+        if (destroyed) return
+        // Never exactly 0: a zero scale makes the normal matrix singular.
+        val value = progress.coerceIn(MIN_RISE, 1f)
+        if (value == rise) return
+        rise = value
+        for (item in rendered) {
+            if (item.part.ref is SurfaceRef.RoomFloor) continue
+            item.mesh?.setVerticalScale(engine, value)
         }
     }
 
@@ -175,6 +199,8 @@ class SceneController(
          * caps resident texture sets while never thrashing a realistic project.
          */
         const val MATERIAL_CACHE_CAPACITY = 16
+
+        const val MIN_RISE = 0.002f
 
         const val FITTING_KEY_PREFIX = "__fitting:"
         const val UNPAINTED_KEY = "__unpainted"

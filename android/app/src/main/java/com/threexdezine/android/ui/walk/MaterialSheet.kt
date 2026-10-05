@@ -72,6 +72,8 @@ import kotlinx.coroutines.launch
 fun MaterialSheet(
     project: Project,
     catalog: Catalog,
+    /** Non-null when the project's policy forbids changing finishes; shown, and nothing applies. */
+    lockedReason: String? = null,
     onApply: (ApplyTarget, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -96,6 +98,19 @@ fun MaterialSheet(
                 .animateContentSize(tween(Motion.SHORT_MS + 80, easing = FastOutSlowInEasing)),
         ) {
             Text("Materials", style = MaterialTheme.typography.headlineSmall)
+
+            if (lockedReason != null) {
+                Text(
+                    lockedReason,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(12.dp))
+                        .padding(12.dp),
+                )
+            }
 
             Row(
                 modifier = Modifier
@@ -153,7 +168,8 @@ fun MaterialSheet(
                         material = material,
                         currency = project.currency,
                         selected = material.id == selectedId,
-                        onClick = { onApply(target, material.id) },
+                        enabled = lockedReason == null,
+                        onClick = { if (lockedReason == null) onApply(target, material.id) },
                     )
                 }
             }
@@ -168,6 +184,7 @@ private fun MaterialRow(
     material: DesignMaterial,
     currency: String,
     selected: Boolean,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     // Selected state eases in; a tap gives a brief press-in "pulse" so it is obvious
@@ -192,6 +209,7 @@ private fun MaterialRow(
     }
     Card(
         onClick = tap,
+        enabled = enabled,
         modifier = modifier
             .fillMaxWidth()
             .graphicsLayer {
@@ -231,6 +249,7 @@ private fun MaterialRow(
             }
             AssistChip(
                 onClick = tap,
+                enabled = enabled,
                 label = {
                     AnimatedContent(
                         targetState = selected,
@@ -238,7 +257,15 @@ private fun MaterialRow(
                             fadeIn(tween(Motion.SHORT_MS)) togetherWith fadeOut(tween(Motion.SHORT_MS))
                         },
                         label = "applyLabel",
-                    ) { isSelected -> Text(if (isSelected) "Applied" else "Apply") }
+                    ) { isSelected ->
+                        Text(
+                            when {
+                                isSelected -> "Applied"
+                                !enabled -> "Locked"
+                                else -> "Apply"
+                            },
+                        )
+                    }
                 },
             )
         }

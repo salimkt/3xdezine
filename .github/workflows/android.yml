@@ -6,6 +6,10 @@ on:
     paths:
       - 'android/**'
       - '.github/workflows/android.yml'
+      # Bundled into the APK at build time by :app:sync*SharedAssets.
+      - 'shared/templates/**'
+      - 'shared/catalog.seed.json'
+      - 'shared/sample-project.json'
   workflow_dispatch:
 
 concurrency:
@@ -60,14 +64,41 @@ jobs:
           # This project has no committed wrapper jar, so provision Gradle directly.
           gradle-version: '9.7.1'
 
-      - name: Build debug APK
-        id: build
-        # Debug rather than release: it needs no signing secrets and no R8, which
-        # matters because Filament reaches into native code through JNI and this
-        # app has never been through a shrinker.
-        run: gradle :app:assembleDebug --stacktrace --no-daemon
+      - name: Prepare signing key and version
+        # The keystore comes from the ANDROID_KEYSTORE_BASE64 secret and is written only
+        # to $RUNNER_TEMP, never into the workspace. Without it (forks, or before the
+        # secret exists) the release APK is built UNSIGNED so the code still compiles, and
+        # the publish step below is skipped: publishing an APK signed with any other key
+        # would recreate the "App not installed" update failure.
+        id: signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -e
+          echo "ANDROID_VERSION_CODE=$(( ${{ github.run_number }} + 100 ))" >> "$GITHUB_ENV"
+          echo "ANDROID_VERSION_NAME=0.2.${{ github.run_number }}" >> "$GITHUB_ENV"
+          if [ -n "$KEYSTORE_B64" ]; then
+            KS="$RUNNER_TEMP/3xdezine-release.p12"
+            printf '%s' "$KEYSTORE_B64" | base64 --decode > "$KS"
+            echo "ANDROID_KEYSTORE_PATH=$KS" >> "$GITHUB_ENV"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "Release keystore decoded ($(wc -c < "$KS") bytes)."
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Release APK is unsigned::ANDROID_KEYSTORE_BASE64 is not set. The release APK will be built unsigned and will NOT be published. See android/README.md > Signing."
+          fi
 
-      - name: Unit tests (camera maths)
+      - name: Build release APK
+        id: build
+        # Release, not debug: it is signed with the one stable key above, so updates
+        # install over each other. R8/resource shrinking are OFF (see app/build.gradle.kts).
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle :app:assembleRelease --stacktrace --no-daemon
+
+      - name: Unit tests
         # Plain JVM tests under app/src/test. A failure here stops the APK from being
         # published, same as a compile error.
         run: gradle :app:testDebugUnitTest --stacktrace --no-daemon
@@ -77,16 +108,40 @@ jobs:
         if: success()
         run: |
           set -e
-          APK=$(find app/build/outputs/apk -name '*.apk' | head -1)
-          echo "Found: $APK ($(du -h "$APK" | cut -f1))"
+          APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          [ -n "$APK" ] || { echo "::error::No release APK produced"; exit 1; }
+          BYTES=$(stat -c %s "$APK")
+          echo "Found: $APK ($(du -h "$APK" | cut -f1), $BYTES bytes)"
           cp "$APK" "${{ github.workspace }}/3xdezine.apk"
           echo "size=$(du -h "$APK" | cut -f1)" >> "$GITHUB_OUTPUT"
+          echo "### APK" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$(basename "$APK")\` — $BYTES bytes, versionCode $ANDROID_VERSION_CODE, versionName $ANDROID_VERSION_NAME" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify signing certificate
+        # Prints the signer so the fingerprint can be compared across runs. It must be
+        # the same on every run; if it ever changes, installed copies stop updating.
+        if: success() && steps.signing.outputs.signed == 'true'
+        env:
+          EXPECTED_CERT_SHA256_PREFIX: cc07bda873aacb96
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -e
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          echo "Using $APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs 3xdezine.apk | tee apksigner.txt
+          SHA=$(grep -m1 'certificate SHA-256 digest' apksigner.txt | awk '{print $NF}')
+          echo "Signer SHA-256: $SHA"
+          echo "Signer certificate SHA-256: \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          case "$SHA" in
+            "$EXPECTED_CERT_SHA256_PREFIX"*) echo "Matches the expected release key." ;;
+            *) echo "::error::Signer $SHA does not start with $EXPECTED_CERT_SHA256_PREFIX"; exit 1 ;;
+          esac
 
       - name: Upload APK artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: 3xdezine-debug-apk
+          name: ${{ steps.signing.outputs.signed == 'true' && '3xdezine-release-apk' || '3xdezine-release-UNSIGNED-apk' }}
           path: 3xdezine.apk
           if-no-files-found: error
 
@@ -100,21 +155,26 @@ jobs:
             android/build/reports/
           if-no-files-found: ignore
 
+      - name: Skip publishing (no signing key)
+        if: success() && github.ref == 'refs/heads/main' && steps.signing.outputs.signed != 'true'
+        run: echo "::warning title=Not published::ANDROID_KEYSTORE_BASE64 is missing, so this build is unsigned and was not published to android-latest. Publishing an APK signed with a different key would break updates for everyone who installed the current one."
+
       - name: Publish to rolling release
-        if: success() && github.ref == 'refs/heads/main'
+        if: success() && github.ref == 'refs/heads/main' && steps.signing.outputs.signed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         working-directory: ${{ github.workspace }}
         run: |
           set -e
           TAG=android-latest
-          NOTES="Debug-signed APK built from ${{ github.sha }}.
+          NOTES="3xDezine for Android $ANDROID_VERSION_NAME (versionCode $ANDROID_VERSION_CODE), built from ${{ github.sha }}.
 
-          Install on Android: download, then allow your browser to install unknown apps when prompted.
+          Install: download 3xdezine.apk, then allow your browser to install unknown apps when prompted.
           Size: ${{ steps.apk.outputs.size }}
 
-          This is a debug build, so it is signed with an ephemeral key. If an update
-          refuses to install, uninstall the previous copy first."
+          Signed with the project's stable release key from this version on, so future builds install as normal updates.
+
+          If you installed an EARLIER build (0.1.x, signed with a throwaway debug key), Android will refuse this one with \"App not installed\" or \"package conflicts with an existing package\". Uninstall the old copy once, then install this. You will not need to do that again."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" 3xdezine.apk --clobber
             gh release edit "$TAG" --notes "$NOTES"

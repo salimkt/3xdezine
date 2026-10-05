@@ -2,8 +2,10 @@
 
 package com.threexdezine.android.data.model
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonClassDiscriminator
 import kotlinx.serialization.json.JsonElement
 
 /**
@@ -292,11 +294,148 @@ data class Project(
     val contingencyBuffer: Double,
     val floors: List<Floor> = emptyList(),
     val roof: RoofSpec? = null,
+    /** Who may change what. Absent means the shared DEFAULT_POLICY (finishes are editable). */
+    val policy: EditPolicy? = null,
+    /** Plan changes proposed under review, rather than applied directly. */
+    val proposals: List<EditProposal>? = null,
+    /** Template this project was started from, if any. */
+    val templateId: String? = null,
     val createdAt: String? = null,
     val updatedAt: String? = null,
 ) {
     val groundFloor: Floor? get() = floors.minByOrNull { it.level }
+
+    /** Materials may be applied unless the policy is explicitly VIEW. */
+    val canEditFinishes: Boolean get() = policy?.level != EditLevel.VIEW
+
+    val pendingProposals: List<EditProposal>
+        get() = proposals.orEmpty().filter { it.status == ProposalStatus.PENDING }
 }
+
+// ---------------------------------------------------------------------------
+// Plan templates
+// ---------------------------------------------------------------------------
+
+@Serializable
+enum class TemplateCategory { STUDIO, APARTMENT, VILLA, COMMERCIAL }
+
+/** Index entry from `shared/templates/index.json`. The template itself is a [Project]. */
+@Serializable
+data class PlanTemplateMeta(
+    val id: String,
+    val name: String,
+    val tagline: String = "",
+    val category: TemplateCategory,
+    /** Bedrooms, Indian "BHK" convention. 0 for a studio. */
+    val bhk: Int = 0,
+    /** Sum of room floor areas, m². */
+    val builtUpSqm: Double = 0.0,
+    val rooms: Int = 0,
+    val styleId: String = "",
+    /** File name relative to shared/templates/, e.g. "2bhk-compact.json". */
+    val file: String,
+)
+
+// ---------------------------------------------------------------------------
+// Edit restrictions, plan rules and proposals
+// ---------------------------------------------------------------------------
+
+@Serializable
+enum class EditLevel { VIEW, FINISHES, LAYOUT, FULL }
+
+@Serializable
+data class EditPolicy(
+    val level: EditLevel,
+    /** Walls nobody below FULL may move — typically load-bearing walls. */
+    val lockedWallIds: List<String> = emptyList(),
+    /** When true, geometry edits become proposals instead of being applied. */
+    val requireReview: Boolean = false,
+)
+
+@Serializable
+enum class RuleSeverity { ERROR, WARNING, INFO }
+
+@Serializable
+data class RuleViolation(
+    /** Stable id, e.g. "room.min-area". */
+    val ruleId: String,
+    val severity: RuleSeverity,
+    val message: String,
+    val reference: String? = null,
+    val roomId: String? = null,
+    val wallId: String? = null,
+    val openingId: String? = null,
+)
+
+/**
+ * A single geometric change to a plan, discriminated by `kind` exactly like the
+ * TypeScript union. A `kind` this client does not know decodes to [Unknown] (registered
+ * as the polymorphic default in [com.threexdezine.android.data.remote.AppJson]) rather
+ * than failing the whole project.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+@JsonClassDiscriminator("kind")
+sealed interface PlanEdit {
+    @Serializable
+    @SerialName("MOVE_CORNER")
+    data class MoveCorner(val from: Vec2, val to: Vec2) : PlanEdit
+
+    @Serializable
+    @SerialName("MOVE_OPENING")
+    data class MoveOpening(val openingId: String, val t: Double) : PlanEdit
+
+    @Serializable
+    @SerialName("RESIZE_OPENING")
+    data class ResizeOpening(val openingId: String, val widthM: Double) : PlanEdit
+
+    @Serializable
+    @SerialName("ADD_OPENING")
+    data class AddOpening(val opening: Opening) : PlanEdit
+
+    @Serializable
+    @SerialName("REMOVE_OPENING")
+    data class RemoveOpening(val openingId: String) : PlanEdit
+
+    /** Client-side only: an edit kind newer than this app. Never sent by the backend. */
+    @Serializable
+    @SerialName("UNKNOWN")
+    data object Unknown : PlanEdit
+}
+
+@Serializable
+data class EditSuggestion(
+    val id: String,
+    val title: String,
+    val rationale: String,
+    val edits: List<PlanEdit> = emptyList(),
+    val resolves: List<String> = emptyList(),
+)
+
+@Serializable
+data class EditCheck(
+    val allowed: Boolean,
+    val reason: String? = null,
+    val violations: List<RuleViolation> = emptyList(),
+    val suggestions: List<EditSuggestion> = emptyList(),
+)
+
+@Serializable
+enum class ProposalStatus { PENDING, ACCEPTED, REJECTED }
+
+@Serializable
+data class EditProposal(
+    val id: String,
+    val author: String,
+    val createdAt: String,
+    val note: String? = null,
+    val edits: List<PlanEdit> = emptyList(),
+    val status: ProposalStatus,
+    /** Violations on the plan as proposed. */
+    val violations: List<RuleViolation> = emptyList(),
+    /** Buffered total after minus before, in project currency. */
+    val costDelta: Double? = null,
+)
 
 // ---------------------------------------------------------------------------
 // Cost engine

@@ -153,6 +153,21 @@ class CameraDirector(
         animatePose(from, walk.pose())
     }
 
+    /** The framed three-quarter overview for the current viewport. */
+    fun homeOrbit(): OrbitRig.State = orbit.home(aspect)
+
+    /**
+     * Jumps straight into the overview at [state], no tween — used by the build-up intro,
+     * which drives the orbit itself frame by frame through this.
+     */
+    fun placeOrbit(state: OrbitRig.State) {
+        cancelQuietly()
+        orbit.set(state)
+        orbitFramed = true
+        mode = CameraMode.ORBIT
+        sync()
+    }
+
     fun raise(dy: Float) {
         cancel()
         walk.raise(dy)

@@ -45,10 +45,35 @@ class FilamentMesh private constructor(
         }
     }
 
+    /**
+     * Squashes the renderable vertically about the floor plane (y = 0) — the build-up
+     * intro's "walls rising from the slab". Uses a Filament TransformManager component
+     * (created on first use; the renderable has none until then, i.e. identity), so no
+     * buffer is touched per frame. Filament 1.72.1: `TransformManager.create(entity)`,
+     * `getInstance`, `hasComponent`, `setTransform(instance, float[16])` column-major.
+     */
+    fun setVerticalScale(engine: Engine, scaleY: Float) {
+        if (destroyed) return
+        val tm = engine.transformManager
+        val instance = if (tm.hasComponent(entity)) {
+            tm.getInstance(entity)
+        } else {
+            if (scaleY == 1f) return
+            tm.create(entity)
+        }
+        val m = FloatArray(16)
+        m[0] = 1f
+        m[5] = scaleY
+        m[10] = 1f
+        m[15] = 1f
+        tm.setTransform(instance, m)
+    }
+
     fun destroy(engine: Engine, scene: Scene) {
         if (destroyed) return
         destroyed = true
         scene.removeEntity(entity)
+        if (engine.transformManager.hasComponent(entity)) engine.transformManager.destroy(entity)
         engine.renderableManager.destroy(entity)
         engine.destroyVertexBuffer(vertexBuffer)
         engine.destroyIndexBuffer(indexBuffer)
