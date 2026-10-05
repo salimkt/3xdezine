@@ -1,13 +1,14 @@
 # 3xDezine — Android client
 
 Kotlin + Jetpack Compose + SceneView/Filament client for the 3xDezine house-design
-platform. Project list → photorealistic 3D walkthrough, with a material browser that
-applies finishes live and a cost panel driven by `POST /api/cost/estimate`.
+platform. Template gallery → photorealistic 3D walkthrough (opening on an overview where
+the walls rise from the slab), with a material browser that applies finishes live and a
+cost panel driven by `POST /api/cost/estimate`.
 
 > ## ⚠️ READ THIS FIRST — THIS COMPILES, BUT IT HAS NEVER RUN
 >
-> As of the CI run that produced release tag `android-latest`, `:app:assembleDebug`
-> **succeeds** and publishes a ~40 MB debug APK. Every API this code calls therefore
+> As of the CI run that produced release tag `android-latest`, `:app:assembleRelease`
+> **succeeds** and publishes a ~36 MB APK signed with the project's stable release key. Every API this code calls therefore
 > resolves against SceneView 4.38.0 / Filament 1.72.1 / AGP 9.4.1 / Kotlin 2.4.20.
 >
 > **Nothing here has ever been on a device or an emulator.** Not one frame has been
@@ -35,11 +36,83 @@ applies finishes live and a cost panel driven by `POST /api/cost/estimate`.
 
 ### CI is the reference build
 
-`.github/workflows/android.yml` builds `:app:assembleDebug` on `ubuntu-latest` with
-JDK 21, a provisioned Gradle 9.7.1 and the runner's preinstalled Android SDK, then
-publishes the APK to the rolling release tag `android-latest`:
+`.github/workflows/android.yml` builds `:app:assembleRelease` on `ubuntu-latest` with
+JDK 21, a provisioned Gradle 9.7.1 and the runner's preinstalled Android SDK, runs the JVM
+unit tests, verifies the signature, then publishes the APK to the rolling release tag
+`android-latest`:
 
 <https://github.com/salimkt/3xdezine/releases/download/android-latest/3xdezine.apk>
+
+The workflow also runs when `shared/templates/**`, `shared/catalog.seed.json` or
+`shared/sample-project.json` change, because those are bundled into the APK.
+
+### Signing
+
+**Why this exists.** Builds up to 0.1.x were signed with whatever throwaway debug keystore
+the CI runner generated, so every build had a different certificate. Android refuses to
+install an update signed by a different key ("App not installed" / "package conflicts with
+an existing package"): first installs worked, every update failed. From 0.2.x on, every
+published APK is signed with one stable release key. **Anyone who installed a 0.1.x
+build must uninstall it once**; after that, updates install normally.
+
+The key lives only in GitHub Actions secrets on `salimkt/3xdezine`:
+
+| Secret | Contents |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | the PKCS#12 keystore, base64-encoded (`base64 -i release.p12`) |
+| `ANDROID_KEYSTORE_PASSWORD` | store password |
+| `ANDROID_KEY_ALIAS` | key alias (`3xdezine`) |
+| `ANDROID_KEY_PASSWORD` | key password |
+
+CI decodes the keystore into `$RUNNER_TEMP` (never the workspace) and exports
+`ANDROID_KEYSTORE_PATH` plus the three values above; `app/build.gradle.kts` creates the
+`release` signing config (`storeType = "pkcs12"`) **only when all four are present**.
+
+- **No secret, no publish.** Without `ANDROID_KEYSTORE_BASE64` (forks, or a deleted
+  secret) the release APK is built *unsigned* so the code still compiles and tests still
+  run, but the publish step is skipped with a `::warning::`. Publishing an APK signed with
+  any other key would recreate the update failure for everyone.
+- **The certificate is checked on every run.** `apksigner verify --print-certs` prints the
+  signer, and the step fails unless its SHA-256 starts with `cc07bda873aacb96` (the
+  current key: `cc07bda873aacb96c8067bc503142bc402ac56411fbdc2975a6ddc57a8d4955f`,
+  `CN=3xDezine, O=3xDezine, C=IN`). The fingerprint is also written to the run summary.
+- **Never commit the keystore.** `*.keystore`, `*.jks`, `*.p12` and `*.pfx` are in
+  `android/.gitignore`. Keep the original `.p12` and its password somewhere safe outside
+  the repo: **losing it means no future update can install over the current one.**
+- **Rotating the key** is a breaking change for every existing install (they must
+  uninstall again), so only do it if the key is compromised. Generate a new PKCS#12 key,
+  update all four secrets, update `EXPECTED_CERT_SHA256_PREFIX` in the workflow, and say
+  "uninstall first" in the release notes. (APK Signature Scheme v3 key rotation would
+  avoid the uninstall but is not set up.)
+- **Local release builds**: export the same four variables (with `ANDROID_KEYSTORE_PATH`
+  pointing at your copy of the keystore) and run `gradle :app:assembleRelease`. Without
+  them you get `app-release-unsigned.apk`, which cannot be installed. Debug builds are
+  unchanged and use the normal local debug key.
+- The APK is v2-signed (minSdk 26, so AGP omits v1 JAR signing).
+
+### Version numbers
+
+| | Source | Example |
+|---|---|---|
+| `versionCode` | `ANDROID_VERSION_CODE`; CI sets it to `github.run_number + 100`, so it strictly increases on every run. Local builds default to `1`. | `107` |
+| `versionName` | `ANDROID_VERSION_NAME`; CI sets `0.2.<run_number>`. Local default `0.2.0-local`. | `0.2.7` |
+
+The `+ 100` keeps every CI build above the hard-coded `versionCode 1` of the old builds.
+
+### Release build settings
+
+`release` has **R8 and resource shrinking OFF** (`isMinifyEnabled = false`,
+`isShrinkResources = false`). This app has never been through a shrinker and Filament /
+SceneView reach into Java through JNI and reflection, so a missing keep rule would be a
+native crash on a device we cannot test — worse than a bigger APK. To enable it later:
+flip both flags, build, install on a real device, walk through a template (materials,
+textures, cost panel), and only then publish. `proguard-rules.pro` is already written for
+it.
+
+**Size:** the release APK is **36 MB (37,613,293 bytes)**, against 41.8 MB for the last
+debug APK. The difference is debug-only code and metadata; it is almost all Filament's
+native libraries and the bundled HDRI. Templates add a few KB of JSON; no image, font or
+model assets were added.
 
 Note on `compileSdk = 37`: `sdkmanager "platforms;android-37"` does **not** resolve —
 the published packages are `android-37.0`, `android-37.1`, `android-37.2`. The runner
@@ -68,6 +141,7 @@ sync.
 cd android
 ./gradlew :app:assembleDebug         # after generating the wrapper
 ./gradlew :app:installDebug
+./gradlew :app:testDebugUnitTest     # JVM tests; also run in CI
 ```
 
 Install prerequisites: SDK Platform 37, Build-Tools for 37, and an emulator image at
@@ -116,18 +190,29 @@ development. **Delete that `base-config` line before shipping anything**; the ex
 
 ### No backend at all
 
-The app is fully demonstrable offline. `shared/catalog.seed.json` and
-`shared/sample-project.json` are bundled verbatim in `app/src/main/assets/`, and every
-remote call falls back to them. The UI says "Offline — using the bundled sample" rather
-than pretending. Cost is then computed by the on-device `LocalCostEngine`, which is
-labelled "offline estimate" in the cost panel.
+The app is fully demonstrable offline. The catalog, the sample project and the plan
+templates are bundled in the APK, and every remote call falls back to them. The UI says
+"Offline" rather than pretending. Cost is then computed by the on-device
+`LocalCostEngine`, which is labelled "offline estimate" in the cost panel.
 
-To refresh the bundled copies after `shared/` changes:
+### Bundled data is generated from `shared/`, never copied by hand
 
-```bash
-cp shared/catalog.seed.json shared/sample-project.json \
-   android/app/src/main/assets/
-```
+A Gradle task per variant (`syncDebugSharedAssets`, `syncReleaseSharedAssets`, defined in
+`app/build.gradle.kts`) copies
+
+| From | Into the APK's assets as |
+|---|---|
+| `shared/catalog.seed.json` | `catalog.seed.json` (required — the build fails without it) |
+| `shared/sample-project.json` | `sample-project.json` (required) |
+| `shared/templates/*.json` | `templates/*.json` (optional) |
+
+into a generated directory registered with
+`androidComponents.onVariants { variant.sources.assets?.addGeneratedSourceDirectory(task, SyncSharedAssetsTask::outputDir) }`
+(AGP 9.4.1 `SourceDirectories.addGeneratedSourceDirectory`; AGP sets the output location
+as a convention). There are no copies under `app/src/main/assets/` any more, so the app
+cannot drift from the web client. If `shared/templates/` does not exist, or its
+`index.json` is missing or unreadable, the gallery shows the sample project as the only
+template; a single template file that fails to parse is skipped and logged.
 
 ---
 
@@ -135,7 +220,12 @@ cp shared/catalog.seed.json shared/sample-project.json \
 
 ### Data
 - `data/model/Domain.kt` — `@Serializable` mirrors of **every** type in
-  `shared/types.ts`, with JSON field names kept identical. Two Kotlin-side *type* renames
+  `shared/types.ts`, with JSON field names kept identical, including `PlanTemplateMeta`,
+  `EditPolicy`/`EditLevel`, `EditProposal`, `RuleViolation`, `EditSuggestion`/`EditCheck`
+  and `PlanEdit` as a sealed hierarchy discriminated by `kind`
+  (`@JsonClassDiscriminator("kind")`). An unknown `kind` decodes to `PlanEdit.Unknown`
+  instead of failing the whole project; unknown keys are ignored everywhere.
+  `Project.policy`, `proposals` and `templateId` are optional. Two Kotlin-side *type* renames
   only: `Unit` → `PricingUnit` (clashes with `kotlin.Unit`) and `Material` →
   `DesignMaterial` (clashes with `com.google.android.filament.Material`).
 - `data/remote/ApiService.kt` — Retrofit 3 interface covering all twelve endpoints in
@@ -175,7 +265,29 @@ cp shared/catalog.seed.json shared/sample-project.json \
   all of it from a `DisposableEffect`.
 
 ### UI
-- Project list with an offline banner and the catalog's `priceBasis` disclaimer.
+- **Home screen** (`ui/home/`): a gallery of plan templates from
+  `shared/templates/index.json`. Each tile has a plan thumbnail **drawn with Compose
+  `Canvas` from the template JSON** — rooms filled with their floor material's catalog
+  colour, walls stroked at their real (scaled) thickness, door and window openings left
+  as gaps and windows marked with a thin glazing line — plus name, tagline, BHK, area in
+  m² and sq ft, room count, and an estimated buffered total from `LocalCostEngine`.
+  Category chips filter All / Studio / Apartment / Villa / Commercial. Saved projects
+  appear as a separate row only when they came from a reachable backend. Tiles enter
+  with a short stagger (200 + 80 ms each, 45 ms apart, capped) and press in to 97 % while
+  held; with system animations off they appear in place.
+- **Build-up intro**: tapping any tile opens the walkthrough in **Overview** with the
+  walls, ceilings, doors and furniture squashed onto the floor slab. When loading
+  finishes they rise over 1.3 s (`FastOutSlowInEasing`) while the camera swings in from
+  further out and higher, settling on the framed three-quarter view at 1.75 s. Any touch
+  skips to the end state (and still does what it was aimed at); with system animations
+  off it is skipped outright. Each frame sets the rise, pushes the camera and calls
+  `renderInvalidator.requestRender()`. The rise is a per-renderable Filament
+  `TransformManager` Y-scale about the floor plane — no buffer is rebuilt per frame.
+- **Edit policy** (`project.policy`): at `VIEW` the material sheet shows why and every
+  material is "Locked" (the view model refuses too). The app has no geometry editor, so
+  the other levels change nothing else; the level, the number of **pending proposals**
+  and their **plan-check** result (errors / warnings from the proposals' violations) are
+  shown read-only on the tile and in the walkthrough's top bar.
 - 3D walkthrough with two cameras — **Walk** (first person) and **Overview** (orbit
   the whole house from outside) — see [Controls](#controls).
 - Material bottom sheet: pick a surface → pick a target (every floor, or just the
@@ -228,7 +340,7 @@ default the first time the phone rotated.
 
 **Why the walkthrough never fades.** It renders into a SurfaceView (SceneView's default
 and fastest surface), which composites behind the window and ignores Compose alpha and
-scale. The project list is therefore always drawn above it: entering, the list fades
+scale. The home screen is therefore always drawn above it: entering, the list fades
 and scales away to reveal the 3D view; leaving, the list fades back in over it and the
 walkthrough (and its Filament engine) is disposed once, when that finishes.
 
@@ -351,6 +463,21 @@ guessed:
 | `renderInvalidator()` | `rememberRenderInvalidator()` returns a `RenderInvalidator` **object**, not a function. Invalidate with `renderInvalidator.requestRender()`. |
 | invalidator not passed to `SceneView` | `SceneView(renderInvalidator = ...)` is what attaches it to the frame gate. Without it every `requestRender()` is dropped and, because 4.38.0 defaults to `FrameRatePolicy.OnDemand`, the picture would have frozen after the first frame. This would have compiled and silently misbehaved. |
 
+Verified for this round against `gradle-api-9.4.1-sources.jar`,
+`filament-android-1.72.1-sources.jar`, `kotlinx-serialization-{core,json}-jvm-1.11.0`,
+`foundation-android-1.12.1` and `material3-android-1.4.0` sources (the Compose BOM
+2026.09.00 maps foundation/ui to 1.12.1), then confirmed by a green `assembleRelease`:
+
+| API | Finding |
+|---|---|
+| `variant.sources.assets?.addGeneratedSourceDirectory(TaskProvider, (TASK) -> DirectoryProperty)` | Exists; AGP sets the directory via `convention`, so the task is registered **per variant** and never sets its own output. |
+| `signingConfigs { create("release") { storeType = … } }` | `storeType: String?` is on `SigningConfig`; v1 is skipped automatically at minSdk 26. |
+| `TransformManager.create(entity)`, `hasComponent`, `getInstance`, `setTransform(int, float[16])`, `destroy(entity)` | As used. `Engine.destroyEntity` also frees it, but the component is destroyed explicitly first, as Filament recommends. |
+| `@JsonClassDiscriminator` | Still `@ExperimentalSerializationApi` in 1.11.0, so it is opted in. |
+| `polymorphicDefaultDeserializer` for a **sealed** base | `SealedClassSerializer.findPolymorphicSerializerOrNull` falls back to the module's default for an unknown serial name, so `PlanEdit.Unknown` works. |
+| `awaitFirstDown(requireUnconsumed, pass = PointerEventPass.Initial)` | Present in foundation 1.12.1 (the one-arg overload is hidden-deprecated). |
+| `FilterChip(enabled)`, `Card(onClick, enabled, interactionSource)`, `AssistChip(enabled)` | As used in material3 1.4.0. |
+
 One further correction, made for correctness rather than to compile: the HDR environment
 is now handed to `SceneView(environment = ...)` instead of being written onto the Filament
 `Scene` by hand. SceneView pushes its own `environment` parameter onto the scene from a
@@ -416,9 +543,19 @@ appears on screen. In rough order of how likely each is to bite:
 - **`LocalCostEngine` totals** have not been checked against `shared/cost.test.ts` or the
   backend. Two documented approximations (roof footprint as the sum of room areas;
   overhang allowance as exterior-wall length × overhangM) may put it a few percent off.
-- **Release build / R8.** Only `assembleDebug` is built in CI. `proguard-rules.pro` keeps
-  Filament, SceneView, kotlinx-serialization and Retrofit, but only a real
-  `assembleRelease` proves it.
+- **Release build.** `assembleRelease` is built and signed in CI, but with R8 **off**;
+  the release variant itself (non-debuggable, no HTTP logging) has never run.
+  `proguard-rules.pro` is untested until R8 is turned on.
+- **Signed updates.** That a 0.2.x build installs *over* another 0.2.x build is what the
+  stable key is for; it follows from Android's rules but has not been tried on a phone.
+- **The build-up intro.** Whether a near-zero Y-scale renders cleanly (normals, shadows,
+  culling of the scaled bounding boxes), whether the per-frame `requestRender()` keeps
+  every frame on screen, and how the touch-to-skip feels are all unobserved.
+- **Plan thumbnails and the home screen** are unseen: colours, stroke weights and the
+  window heuristic (a window component, or any opening with a sill above 5 cm) need an
+  eye on a device. Templates from `shared/templates/` had not landed when this was
+  built, so the gallery was compiled against the sample-project fallback only; the
+  `everySharedTemplateParses` unit test runs against them as soon as they exist.
 - **Hardware GL requirement.** Filament needs real OpenGL ES 3.0; an emulator on the
   software renderer will crash or crawl.
 - **Camera gestures and animation.** Only the maths is tested (`app/src/test`, run in
@@ -432,7 +569,9 @@ appears on screen. In rough order of how likely each is to bite:
 - **Screen transition.** The SurfaceView-under-the-list ordering is reasoned from how
   SurfaceView composites; a one-frame black flash on entering or a brief second Filament
   engine while re-opening during an exit are possible and unmeasured.
-- **Tests are thin.** `CameraMath` and `OrbitRig` have JVM unit tests. `LocalCostEngine`
+- **Tests are thin.** `CameraMath`, `OrbitRig`, the plan-thumbnail geometry
+  (`PlanGeometryTest`) and template / policy / proposal parsing
+  (`TemplateParsingTest`) have JVM unit tests. `LocalCostEngine`
   and `Triangulator` are pure and testable but still have none.
 
 ---

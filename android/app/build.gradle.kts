@@ -54,7 +54,7 @@ android {
                 keyAlias = keyAliasEnv
                 keyPassword = keyPasswordEnv
                 storeType = "pkcs12"
-                enableV1Signing = true
+                // v2 (and AGP's defaults above it). v1 JAR signing is skipped at minSdk 26.
                 enableV2Signing = true
             }
         }

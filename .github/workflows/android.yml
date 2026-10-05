@@ -114,6 +114,7 @@ jobs:
           echo "Found: $APK ($(du -h "$APK" | cut -f1), $BYTES bytes)"
           cp "$APK" "${{ github.workspace }}/3xdezine.apk"
           echo "size=$(du -h "$APK" | cut -f1)" >> "$GITHUB_OUTPUT"
+          echo "APK SHA-256 (file): $(sha256sum "$APK" | cut -d' ' -f1)"
           echo "### APK" >> "$GITHUB_STEP_SUMMARY"
           echo "\`$(basename "$APK")\` — $BYTES bytes, versionCode $ANDROID_VERSION_CODE, versionName $ANDROID_VERSION_NAME" >> "$GITHUB_STEP_SUMMARY"
 
