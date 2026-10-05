@@ -1,0 +1,47 @@
+{
+  "name": "Neighbourhood Café",
+  "currency": "INR",
+  "unitSystem": "metric",
+  "contingencyBuffer": 0.08,
+  "templateId": "cafe",
+  "policy": {"level":"LAYOUT","lockedWallIds":[],"requireReview":false},
+  "roof": {"kind":"FLAT","pitchDeg":0,"overhangM":0.3,"materialId":"metal-standing-seam"},
+  "floors": [
+    {
+      "id": "floor-0",
+      "name": "Ground Floor",
+      "level": 0,
+      "walls": [
+        {"id":"ext-n","start":{"x":0,"z":0},"end":{"x":10,"z":0},"heightM":3.2,"thicknessM":0.23,"exterior":true,"interiorMaterialId":"exposed-brick","exteriorMaterialId":"brick-veneer-red"},
+        {"id":"ext-e","start":{"x":10,"z":0},"end":{"x":10,"z":7},"heightM":3.2,"thicknessM":0.23,"exterior":true,"interiorMaterialId":"exposed-brick","exteriorMaterialId":"brick-veneer-red"},
+        {"id":"ext-s","start":{"x":10,"z":7},"end":{"x":0,"z":7},"heightM":3.2,"thicknessM":0.23,"exterior":true,"interiorMaterialId":"exposed-brick","exteriorMaterialId":"brick-veneer-red"},
+        {"id":"ext-w","start":{"x":0,"z":7},"end":{"x":0,"z":0},"heightM":3.2,"thicknessM":0.23,"exterior":true,"interiorMaterialId":"exposed-brick","exteriorMaterialId":"brick-veneer-red"},
+        {"id":"c1","start":{"x":6.4,"z":2.4},"end":{"x":6.4,"z":7},"heightM":3.2,"thicknessM":0.115,"exterior":false,"interiorMaterialId":"exposed-brick"},
+        {"id":"c2","start":{"x":6.4,"z":2.4},"end":{"x":10,"z":2.4},"heightM":3.2,"thicknessM":0.115,"exterior":false,"interiorMaterialId":"exposed-brick"},
+        {"id":"c3","start":{"x":6.4,"z":5},"end":{"x":10,"z":5},"heightM":3.2,"thicknessM":0.115,"exterior":false,"interiorMaterialId":"exposed-brick"},
+        {"id":"c4","start":{"x":8.2,"z":5},"end":{"x":8.2,"z":7},"heightM":3.2,"thicknessM":0.115,"exterior":false,"interiorMaterialId":"exposed-brick"}
+      ],
+      "rooms": [
+        {"id":"r-seating","name":"Seating","polygon":[{"x":0,"z":0},{"x":6.4,"z":0},{"x":6.4,"z":7},{"x":0,"z":7}],"ceilingHeightM":3.2,"floorMaterialId":"polished-concrete","ceilingMaterialId":"gypsum-ceiling"},
+        {"id":"r-counter","name":"Counter","polygon":[{"x":6.4,"z":0},{"x":10,"z":0},{"x":10,"z":2.4},{"x":6.4,"z":2.4}],"ceilingHeightM":3.2,"floorMaterialId":"ceramic-tile-grey","ceilingMaterialId":"gypsum-ceiling"},
+        {"id":"r-boh","name":"Back of House","polygon":[{"x":6.4,"z":2.4},{"x":10,"z":2.4},{"x":10,"z":5},{"x":6.4,"z":5}],"ceilingHeightM":3.2,"floorMaterialId":"ceramic-tile-grey","ceilingMaterialId":"gypsum-ceiling"},
+        {"id":"r-restroom","name":"Restroom","polygon":[{"x":6.4,"z":5},{"x":8.2,"z":5},{"x":8.2,"z":7},{"x":6.4,"z":7}],"ceilingHeightM":3.2,"floorMaterialId":"ceramic-tile-grey","ceilingMaterialId":"gypsum-ceiling"},
+        {"id":"r-store","name":"Store","polygon":[{"x":8.2,"z":5},{"x":10,"z":5},{"x":10,"z":7},{"x":8.2,"z":7}],"ceilingHeightM":3.2,"floorMaterialId":"polished-concrete","ceilingMaterialId":"gypsum-ceiling"}
+      ],
+      "openings": [
+        {"id":"o-entry","wallId":"ext-n","componentId":"door-entry-walnut","t":0.32,"widthM":1.2,"heightM":2.4,"sillM":0},
+        {"id":"o-seating-pic-1","wallId":"ext-w","componentId":"window-picture-large","t":0.7429,"widthM":2.4,"heightM":2.2,"sillM":0.3},
+        {"id":"o-seating-pic-2","wallId":"ext-w","componentId":"window-picture-large","t":0.2857,"widthM":2.4,"heightM":2.2,"sillM":0.3},
+        {"id":"o-seating-pic-s","wallId":"ext-s","componentId":"window-picture-large","t":0.68,"widthM":2.4,"heightM":2.2,"sillM":0.3},
+        {"id":"o-counter-win-n","wallId":"ext-n","componentId":"window-casement","t":0.82,"widthM":1.5,"heightM":1.4,"sillM":0.9},
+        {"id":"o-counter-win-e","wallId":"ext-e","componentId":"window-casement","t":0.1714,"widthM":1.2,"heightM":1.4,"sillM":0.9},
+        {"id":"o-boh-door","wallId":"c2","componentId":"door-flush-oak","t":0.5,"widthM":0.9,"heightM":2.1,"sillM":0},
+        {"id":"o-boh-win","wallId":"ext-e","componentId":"window-casement","t":0.5286,"widthM":1.2,"heightM":1.4,"sillM":0.9},
+        {"id":"o-restroom-door","wallId":"c1","componentId":"door-flush-oak","t":0.7826,"widthM":0.9,"heightM":2.1,"sillM":0},
+        {"id":"o-restroom-vent","wallId":"ext-s","componentId":"window-double-hung","t":0.27,"widthM":0.6,"heightM":0.6,"sillM":1.5},
+        {"id":"o-store-door","wallId":"c3","componentId":"door-flush-oak","t":0.75,"widthM":0.9,"heightM":2.1,"sillM":0}
+      ],
+      "components": []
+    }
+  ]
+}

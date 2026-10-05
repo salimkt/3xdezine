@@ -28,6 +28,8 @@ import {
 
 import type {
   ColorInfo,
+  EditPolicy,
+  EditProposal,
   Floor,
   MaterialCategory,
   PbrInfo,
@@ -112,6 +114,10 @@ export const stylePresets = pgTable('style_presets', {
 export interface ProjectDocument {
   floors: Floor[];
   roof?: RoofSpec;
+  /** Edit restrictions, review queue and origin travel with the geometry: no migration needed. */
+  policy?: EditPolicy;
+  proposals?: EditProposal[];
+  templateId?: string;
 }
 
 export const projects = pgTable('projects', {

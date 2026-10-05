@@ -1,0 +1,59 @@
+{
+  "name": "3 BHK Row House",
+  "currency": "INR",
+  "unitSystem": "metric",
+  "contingencyBuffer": 0.08,
+  "templateId": "row-house",
+  "policy": {"level":"LAYOUT","lockedWallIds":[],"requireReview":false},
+  "roof": {"kind":"GABLE","pitchDeg":30,"overhangM":0.6,"materialId":"clay-tile-roof"},
+  "floors": [
+    {
+      "id": "floor-0",
+      "name": "Ground Floor",
+      "level": 0,
+      "walls": [
+        {"id":"ext-n","start":{"x":0,"z":0},"end":{"x":8.6,"z":0},"heightM":3,"thicknessM":0.23,"exterior":true,"interiorMaterialId":"paint-white-matte","exteriorMaterialId":"stucco-white"},
+        {"id":"ext-e","start":{"x":8.6,"z":0},"end":{"x":8.6,"z":14},"heightM":3,"thicknessM":0.23,"exterior":true,"interiorMaterialId":"paint-white-matte","exteriorMaterialId":"stucco-white"},
+        {"id":"ext-s","start":{"x":8.6,"z":14},"end":{"x":0,"z":14},"heightM":3,"thicknessM":0.23,"exterior":true,"interiorMaterialId":"paint-white-matte","exteriorMaterialId":"stucco-white"},
+        {"id":"ext-w","start":{"x":0,"z":14},"end":{"x":0,"z":0},"heightM":3,"thicknessM":0.23,"exterior":true,"interiorMaterialId":"paint-white-matte","exteriorMaterialId":"stucco-white"},
+        {"id":"i-living-s","start":{"x":0,"z":4.6},"end":{"x":3.8,"z":4.6},"heightM":3,"thicknessM":0.115,"exterior":false,"interiorMaterialId":"paint-white-matte"},
+        {"id":"i-pass-w","start":{"x":3.8,"z":4.6},"end":{"x":3.8,"z":14},"heightM":3,"thicknessM":0.115,"exterior":false,"interiorMaterialId":"paint-white-matte"},
+        {"id":"i-pass-e","start":{"x":5,"z":8},"end":{"x":5,"z":14},"heightM":3,"thicknessM":0.115,"exterior":false,"interiorMaterialId":"paint-white-matte"},
+        {"id":"i1","start":{"x":0,"z":8.4},"end":{"x":3.8,"z":8.4},"heightM":3,"thicknessM":0.115,"exterior":false,"interiorMaterialId":"paint-white-matte"},
+        {"id":"i2","start":{"x":0,"z":9.9},"end":{"x":3.8,"z":9.9},"heightM":3,"thicknessM":0.115,"exterior":false,"interiorMaterialId":"paint-white-matte"},
+        {"id":"i3","start":{"x":5,"z":8},"end":{"x":8.6,"z":8},"heightM":3,"thicknessM":0.115,"exterior":false,"interiorMaterialId":"paint-white-matte"},
+        {"id":"i4","start":{"x":5,"z":11},"end":{"x":8.6,"z":11},"heightM":3,"thicknessM":0.115,"exterior":false,"interiorMaterialId":"paint-white-matte"}
+      ],
+      "rooms": [
+        {"id":"r-living","name":"Living","polygon":[{"x":0,"z":0},{"x":8.6,"z":0},{"x":8.6,"z":4.6},{"x":0,"z":4.6}],"ceilingHeightM":3,"floorMaterialId":"ceramic-tile-grey","ceilingMaterialId":"wood-plank-ceiling"},
+        {"id":"r-bed1","name":"Bedroom 1","polygon":[{"x":0,"z":4.6},{"x":3.8,"z":4.6},{"x":3.8,"z":8.4},{"x":0,"z":8.4}],"ceilingHeightM":3,"floorMaterialId":"ceramic-tile-grey","ceilingMaterialId":"wood-plank-ceiling"},
+        {"id":"r-toilet","name":"Toilet","polygon":[{"x":0,"z":8.4},{"x":3.8,"z":8.4},{"x":3.8,"z":9.9},{"x":0,"z":9.9}],"ceilingHeightM":3,"floorMaterialId":"ceramic-tile-grey","ceilingMaterialId":"wood-plank-ceiling"},
+        {"id":"r-bed2","name":"Bedroom 2","polygon":[{"x":0,"z":9.9},{"x":3.8,"z":9.9},{"x":3.8,"z":14},{"x":0,"z":14}],"ceilingHeightM":3,"floorMaterialId":"ceramic-tile-grey","ceilingMaterialId":"wood-plank-ceiling"},
+        {"id":"r-passage","name":"Passage","polygon":[{"x":3.8,"z":4.6},{"x":5,"z":4.6},{"x":5,"z":14},{"x":3.8,"z":14}],"ceilingHeightM":3,"floorMaterialId":"ceramic-tile-grey","ceilingMaterialId":"wood-plank-ceiling"},
+        {"id":"r-dining","name":"Dining","polygon":[{"x":5,"z":4.6},{"x":8.6,"z":4.6},{"x":8.6,"z":8},{"x":5,"z":8}],"ceilingHeightM":3,"floorMaterialId":"ceramic-tile-grey","ceilingMaterialId":"wood-plank-ceiling"},
+        {"id":"r-kitchen","name":"Kitchen","polygon":[{"x":5,"z":8},{"x":8.6,"z":8},{"x":8.6,"z":11},{"x":5,"z":11}],"ceilingHeightM":3,"floorMaterialId":"ceramic-tile-grey","ceilingMaterialId":"wood-plank-ceiling"},
+        {"id":"r-bed3","name":"Bedroom 3","polygon":[{"x":5,"z":11},{"x":8.6,"z":11},{"x":8.6,"z":14},{"x":5,"z":14}],"ceilingHeightM":3,"floorMaterialId":"ceramic-tile-grey","ceilingMaterialId":"wood-plank-ceiling"}
+      ],
+      "openings": [
+        {"id":"o-entry","wallId":"ext-n","componentId":"door-entry-walnut","t":0.2326,"widthM":1.1,"heightM":2.4,"sillM":0},
+        {"id":"o-living-pic","wallId":"ext-n","componentId":"window-picture-large","t":0.6512,"widthM":2.4,"heightM":2.2,"sillM":0.3},
+        {"id":"o-living-win-w","wallId":"ext-w","componentId":"window-casement","t":0.8357,"widthM":1.5,"heightM":1.4,"sillM":0.9},
+        {"id":"o-living-win-e","wallId":"ext-e","componentId":"window-casement","t":0.1643,"widthM":1.5,"heightM":1.4,"sillM":0.9},
+        {"id":"o-bed1-door","wallId":"i-pass-w","componentId":"door-flush-oak","t":0.2021,"widthM":0.9,"heightM":2.1,"sillM":0},
+        {"id":"o-bed1-win","wallId":"ext-w","componentId":"window-casement","t":0.5357,"widthM":1.8,"heightM":1.4,"sillM":0.9},
+        {"id":"o-toilet-door","wallId":"i-pass-w","componentId":"door-flush-oak","t":0.484,"widthM":0.9,"heightM":2.1,"sillM":0},
+        {"id":"o-toilet-vent","wallId":"ext-w","componentId":"window-double-hung","t":0.3464,"widthM":0.6,"heightM":0.6,"sillM":1.5},
+        {"id":"o-bed2-door","wallId":"i-pass-w","componentId":"door-flush-oak","t":0.6596,"widthM":0.9,"heightM":2.1,"sillM":0},
+        {"id":"o-bed2-win-w","wallId":"ext-w","componentId":"window-casement","t":0.1429,"widthM":1.5,"heightM":1.4,"sillM":0.9},
+        {"id":"o-bed2-win-s","wallId":"ext-s","componentId":"window-casement","t":0.7791,"widthM":1.5,"heightM":1.4,"sillM":0.9},
+        {"id":"o-dining-win","wallId":"ext-e","componentId":"window-casement","t":0.45,"widthM":1.8,"heightM":1.4,"sillM":0.9},
+        {"id":"o-kitchen-door","wallId":"i-pass-e","componentId":"door-flush-oak","t":0.1667,"widthM":0.9,"heightM":2.1,"sillM":0},
+        {"id":"o-kitchen-win","wallId":"ext-e","componentId":"window-casement","t":0.6786,"widthM":1.8,"heightM":1.4,"sillM":0.9},
+        {"id":"o-bed3-door","wallId":"i-pass-e","componentId":"door-flush-oak","t":0.6667,"widthM":0.9,"heightM":2.1,"sillM":0},
+        {"id":"o-bed3-win-e","wallId":"ext-e","componentId":"window-casement","t":0.8929,"widthM":1.5,"heightM":1.4,"sillM":0.9},
+        {"id":"o-bed3-win-s","wallId":"ext-s","componentId":"window-casement","t":0.2093,"widthM":1.2,"heightM":1.4,"sillM":0.9}
+      ],
+      "components": [{"id":"pc-sofa-r-living","componentId":"sofa-3seat","position":{"x":4.3,"z":3.1},"rotationDeg":180},{"id":"pc-pendant-r-living","componentId":"pendant-light","position":{"x":4.3,"z":2.3},"rotationDeg":0}]
+    }
+  ]
+}

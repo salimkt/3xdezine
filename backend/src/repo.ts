@@ -107,6 +107,9 @@ export function toProject(row: ProjectRow): Project {
     contingencyBuffer: row.contingencyBuffer,
     floors: row.data.floors ?? [],
     ...(row.data.roof ? { roof: row.data.roof } : {}),
+    ...(row.data.policy ? { policy: row.data.policy } : {}),
+    ...(row.data.proposals ? { proposals: row.data.proposals } : {}),
+    ...(row.data.templateId ? { templateId: row.data.templateId } : {}),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -231,7 +234,13 @@ export function invalidateCatalogCache(): void {
 // ---------------------------------------------------------------------------
 
 function toDocument(project: Project): ProjectDocument {
-  return { floors: project.floors, ...(project.roof ? { roof: project.roof } : {}) };
+  return {
+    floors: project.floors,
+    ...(project.roof ? { roof: project.roof } : {}),
+    ...(project.policy ? { policy: project.policy } : {}),
+    ...(project.proposals ? { proposals: project.proposals } : {}),
+    ...(project.templateId ? { templateId: project.templateId } : {}),
+  };
 }
 
 export async function listProjects(): Promise<ProjectSummaryDto[]> {

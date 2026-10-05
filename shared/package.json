@@ -8,10 +8,14 @@
     "./types": "./types.ts",
     "./cost": "./cost.ts",
     "./catalog.seed.json": "./catalog.seed.json",
-    "./sample-project.json": "./sample-project.json"
+    "./sample-project.json": "./sample-project.json",
+    "./rules": "./rules.ts",
+    "./templates/index.json": "./templates/index.json",
+    "./templates/*.json": "./templates/*.json"
   },
   "scripts": {
-    "test": "tsx --test cost.test.ts",
-    "typecheck": "tsc --noEmit"
+    "test": "tsx --test cost.test.ts rules.test.ts templates.test.ts",
+    "typecheck": "tsc --noEmit",
+    "templates": "tsx templates/generate.ts"
   }
 }

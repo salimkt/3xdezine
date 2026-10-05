@@ -224,6 +224,12 @@ export interface Project {
   contingencyBuffer: number;
   floors: Floor[];
   roof?: RoofSpec;
+  /** Who may change what. Absent means DEFAULT_POLICY from shared/rules.ts. */
+  policy?: EditPolicy;
+  /** Plan changes proposed under review, rather than applied directly. */
+  proposals?: EditProposal[];
+  /** Template this project was started from, if any. */
+  templateId?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -344,4 +350,120 @@ export interface MaterialQuery {
   style?: string;
   maxPrice?: number;
   q?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Plan templates
+// ---------------------------------------------------------------------------
+
+/**
+ * Index entry for a starter plan. Templates themselves are ordinary `Project`
+ * documents stored as JSON under `shared/templates/`, listed in
+ * `shared/templates/index.json` as `PlanTemplateMeta[]`. They contain no
+ * assets of their own — every finish references the existing catalog — so
+ * adding a template costs a few KB of JSON and nothing else.
+ */
+export interface PlanTemplateMeta {
+  id: string;
+  name: string;
+  /** One line, shown on the tile. */
+  tagline: string;
+  category: 'STUDIO' | 'APARTMENT' | 'VILLA' | 'COMMERCIAL';
+  /** Bedrooms, Indian "BHK" convention. 0 for a studio. */
+  bhk: number;
+  /** Sum of room floor areas, m². */
+  builtUpSqm: number;
+  rooms: number;
+  /** StylePreset id the template's finishes follow. */
+  styleId: string;
+  /** File name relative to shared/templates/, e.g. "2bhk-compact.json". */
+  file: string;
+}
+
+// ---------------------------------------------------------------------------
+// Edit restrictions, plan rules and proposals
+// ---------------------------------------------------------------------------
+
+/**
+ * How much of the plan may be changed.
+ *  - VIEW      look only
+ *  - FINISHES  materials only; geometry is locked
+ *  - LAYOUT    finishes, interior walls and openings; the envelope (exterior
+ *              walls) and any `lockedWallIds` stay fixed
+ *  - FULL      everything
+ */
+export type EditLevel = 'VIEW' | 'FINISHES' | 'LAYOUT' | 'FULL';
+
+export interface EditPolicy {
+  level: EditLevel;
+  /** Walls nobody below FULL may move — typically load-bearing walls. */
+  lockedWallIds: string[];
+  /**
+   * When true, geometry edits become `EditProposal`s for review instead of
+   * being applied. Finishes still apply directly.
+   */
+  requireReview: boolean;
+}
+
+export type RuleSeverity = 'ERROR' | 'WARNING' | 'INFO';
+
+export interface RuleViolation {
+  /** Stable id, e.g. "room.min-area". */
+  ruleId: string;
+  severity: RuleSeverity;
+  /** Plain-language message, e.g. "Bedroom is 8.1 m², below the 9.5 m² minimum". */
+  message: string;
+  /** Where the rule comes from, e.g. "NBC 2016 Part 3". */
+  reference?: string;
+  roomId?: string;
+  wallId?: string;
+  openingId?: string;
+}
+
+/** A single geometric change to a plan. Pure data, so it can be proposed, diffed and replayed. */
+export type PlanEdit =
+  /** Moves every wall endpoint and room vertex that sits at `from` (within 1 cm). */
+  | { kind: 'MOVE_CORNER'; from: Vec2; to: Vec2 }
+  | { kind: 'MOVE_OPENING'; openingId: string; t: number }
+  | { kind: 'RESIZE_OPENING'; openingId: string; widthM: number }
+  | { kind: 'ADD_OPENING'; opening: Opening }
+  | { kind: 'REMOVE_OPENING'; openingId: string };
+
+/** A fix the rules engine offers when an edit would break a rule. */
+export interface EditSuggestion {
+  id: string;
+  /** Short action label, e.g. "Keep the bedroom at 9.5 m²". */
+  title: string;
+  /** Why this fixes it. */
+  rationale: string;
+  /** Replaces the attempted edit(s) when accepted. */
+  edits: PlanEdit[];
+  /** ruleIds this suggestion resolves. */
+  resolves: string[];
+}
+
+export interface EditCheck {
+  /** False when the policy forbids the edit outright (locked wall, VIEW level...). */
+  allowed: boolean;
+  /** Why it was refused, when `allowed` is false. */
+  reason?: string;
+  /** Violations the plan would have AFTER the edit (new ones only). */
+  violations: RuleViolation[];
+  /** Ways to get what the user wanted without the violations. */
+  suggestions: EditSuggestion[];
+}
+
+export type ProposalStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED';
+
+export interface EditProposal {
+  id: string;
+  author: string;
+  createdAt: string;
+  note?: string;
+  edits: PlanEdit[];
+  status: ProposalStatus;
+  /** Violations on the plan as proposed. */
+  violations: RuleViolation[];
+  /** Buffered total after minus before, in project currency. */
+  costDelta?: number;
 }

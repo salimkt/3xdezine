@@ -17,8 +17,12 @@ import type {
   Catalog,
   ComponentProduct,
   CostBreakdown,
+  EditPolicy,
+  EditProposal,
   Material,
+  PlanEdit,
   Project,
+  RuleViolation,
   StylePreset,
   SuggestionRequest,
   SuggestionResponse,
@@ -236,6 +240,59 @@ export const RoofSpecSchema = z.object({
   materialId: z.string().optional(),
 });
 
+// ---------------------------------------------------------------------------
+// Edit restrictions, plan rules and proposals (shared/rules.ts)
+// ---------------------------------------------------------------------------
+
+export const EditLevelSchema = z
+  .enum(['VIEW', 'FINISHES', 'LAYOUT', 'FULL'])
+  .describe('VIEW looks only; FINISHES changes materials; LAYOUT also interior walls and openings; FULL everything.');
+
+export const EditPolicySchema = z
+  .object({
+    level: EditLevelSchema,
+    lockedWallIds: z.array(z.string()).describe('Walls nobody below FULL may move — typically load-bearing.'),
+    requireReview: z
+      .boolean()
+      .describe('When true, geometry edits become proposals for review instead of being applied.'),
+  })
+  .meta({ id: 'EditPolicy' });
+
+export const RuleViolationSchema = z
+  .object({
+    ruleId: z.string().describe('Stable id, e.g. "room.min-area".'),
+    severity: z.enum(['ERROR', 'WARNING', 'INFO']),
+    message: z.string(),
+    reference: z.string().optional().describe('Where the rule comes from, e.g. "NBC 2016 Part 3, cl. 12.2.2".'),
+    roomId: z.string().optional(),
+    wallId: z.string().optional(),
+    openingId: z.string().optional(),
+  })
+  .meta({ id: 'RuleViolation' });
+
+export const PlanEditSchema = z
+  .discriminatedUnion('kind', [
+    z.object({ kind: z.literal('MOVE_CORNER'), from: Vec2Schema, to: Vec2Schema }),
+    z.object({ kind: z.literal('MOVE_OPENING'), openingId: z.string(), t: z.number().min(0).max(1) }),
+    z.object({ kind: z.literal('RESIZE_OPENING'), openingId: z.string(), widthM: z.number().positive() }),
+    z.object({ kind: z.literal('ADD_OPENING'), opening: OpeningSchema }),
+    z.object({ kind: z.literal('REMOVE_OPENING'), openingId: z.string() }),
+  ])
+  .meta({ id: 'PlanEdit' });
+
+export const EditProposalSchema = z
+  .object({
+    id: z.string(),
+    author: z.string(),
+    createdAt: z.iso.datetime(),
+    note: z.string().optional(),
+    edits: z.array(PlanEditSchema),
+    status: z.enum(['PENDING', 'ACCEPTED', 'REJECTED']),
+    violations: z.array(RuleViolationSchema).describe('Violations on the plan as proposed.'),
+    costDelta: z.number().optional().describe('Buffered total after minus before, in project currency.'),
+  })
+  .meta({ id: 'EditProposal' });
+
 export const ProjectSchema = z
   .object({
     id: z.string().optional(),
@@ -245,6 +302,9 @@ export const ProjectSchema = z
     contingencyBuffer: z.number().min(0).max(1),
     floors: z.array(FloorSchema),
     roof: RoofSpecSchema.optional(),
+    policy: EditPolicySchema.optional().describe('Absent means the default: LAYOUT, nothing locked, no review.'),
+    proposals: z.array(EditProposalSchema).optional(),
+    templateId: z.string().optional().describe('Starter template this project came from.'),
     createdAt: z.iso.datetime().optional(),
     updatedAt: z.iso.datetime().optional(),
   })
@@ -407,6 +467,10 @@ export type ComponentDto = Conforms<ComponentProduct, z.infer<typeof ComponentPr
 export type StyleDto = Conforms<StylePreset, z.infer<typeof StylePresetSchema>>;
 export type CatalogDto = Conforms<Catalog, z.infer<typeof CatalogSchema>>;
 export type ProjectDto = Conforms<Project, z.infer<typeof ProjectSchema>>;
+export type EditPolicyDto = Conforms<EditPolicy, z.infer<typeof EditPolicySchema>>;
+export type RuleViolationDto = Conforms<RuleViolation, z.infer<typeof RuleViolationSchema>>;
+export type PlanEditDto = Conforms<PlanEdit, z.infer<typeof PlanEditSchema>>;
+export type EditProposalDto = Conforms<EditProposal, z.infer<typeof EditProposalSchema>>;
 export type CostBreakdownDto = Conforms<CostBreakdown, z.infer<typeof CostBreakdownSchema>>;
 export type SuggestionRequestDto = Conforms<
   SuggestionRequest,

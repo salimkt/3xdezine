@@ -1,0 +1,10 @@
+[
+  {"id":"studio","name":"Studio Apartment","tagline":"One open room, kitchenette and toilet — a 30 m² city starter.","category":"STUDIO","bhk":0,"builtUpSqm":30,"rooms":4,"styleId":"scandi-minimal","file":"studio.json"},
+  {"id":"1bhk","name":"1 BHK Apartment","tagline":"Bedroom, living, dining and kitchen with a common toilet off a small lobby.","category":"APARTMENT","bhk":1,"builtUpSqm":45.6,"rooms":6,"styleId":"coastal-mediterranean","file":"1bhk.json"},
+  {"id":"2bhk-compact","name":"2 BHK Compact","tagline":"Two bedrooms around a shared toilet, open living-dining, 63 m².","category":"APARTMENT","bhk":2,"builtUpSqm":63,"rooms":6,"styleId":"modern-warm","file":"2bhk-compact.json"},
+  {"id":"2bhk","name":"2 BHK Apartment","tagline":"Both bedrooms with their own toilet, separate dining — review-gated demo.","category":"APARTMENT","bhk":2,"builtUpSqm":80,"rooms":9,"styleId":"scandi-minimal","file":"2bhk.json"},
+  {"id":"3bhk","name":"3 BHK Apartment","tagline":"Master suite with dressing, two more bedrooms, utility off the kitchen.","category":"APARTMENT","bhk":3,"builtUpSqm":111.36,"rooms":13,"styleId":"modern-warm","file":"3bhk.json"},
+  {"id":"4bhk-villa","name":"4 BHK Villa","tagline":"Detached single-storey villa: four en-suite bedrooms off a central passage, master with dressing.","category":"VILLA","bhk":4,"builtUpSqm":185.6,"rooms":14,"styleId":"classic-elegant","file":"4bhk-villa.json"},
+  {"id":"row-house","name":"3 BHK Row House","tagline":"Narrow 8.6 m frontage, 14 m deep: rooms either side of a central passage.","category":"VILLA","bhk":3,"builtUpSqm":120.4,"rooms":8,"styleId":"coastal-mediterranean","file":"row-house.json"},
+  {"id":"cafe","name":"Neighbourhood Café","tagline":"Commercial: 45 m² seating, service counter, back of house, restroom and store.","category":"COMMERCIAL","bhk":0,"builtUpSqm":70,"rooms":5,"styleId":"industrial-loft","file":"cafe.json"}
+]
