@@ -109,7 +109,7 @@ flip both flags, build, install on a real device, walk through a template (mater
 textures, cost panel), and only then publish. `proguard-rules.pro` is already written for
 it.
 
-**Size:** the release APK is **36 MB (37,613,293 bytes)**, against 41.8 MB for the last
+**Size:** the release APK is **≈37.6 MB (37,598,271 bytes; `du -h` says 36M)**, against 41.8 MB for the last
 debug APK. The difference is debug-only code and metadata; it is almost all Filament's
 native libraries and the bundled HDRI. Templates add a few KB of JSON; no image, font or
 model assets were added.
