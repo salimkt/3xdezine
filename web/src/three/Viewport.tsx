@@ -9,14 +9,41 @@ import { loadTextureManifest, type TextureManifest } from '../lib/materials';
 import { Building, Ground } from './Building';
 import { Hdri, Sun } from './Lighting';
 import { PostFX } from './PostFX';
-import { DUR, TweenSlot, easeInOutCubic, easeOutCubic, lerp, prefersReducedMotion } from '../lib/motion';
+import {
+  DUR,
+  TweenSlot,
+  easeInOutCubic,
+  easeOutCubic,
+  lerp,
+  prefersReducedMotion,
+  type Easing,
+} from '../lib/motion';
+import {
+  beginIntro,
+  introPending,
+  introRemainingMs,
+  introSeq,
+  introStarted,
+  onIntroSkip,
+  requestIntro,
+  skipIntro,
+} from '../lib/intro';
 import { ZoomCluster } from '../ui/ZoomCluster';
+import { SunControl } from '../ui/SunControl';
+import { usePreviewProposal } from '../lib/checks';
 
 // R3F needs the WebGPU flavour of the namespace so node materials and the
 // WebGPU-specific classes are constructible from JSX.
 extend(THREE as unknown as Parameters<typeof extend>[0]);
 
 const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator;
+
+// Each plan opened from the home screen gets the build-up — unless the 3D pane
+// is not on screen, in which case there is nobody to play it to.
+if (useStore.getState().openedAt > 0 && useStore.getState().view !== '2d') requestIntro();
+useStore.subscribe((state, prev) => {
+  if (state.openedAt !== prev.openedAt && state.view !== '2d') requestIntro();
+});
 
 // ---------------------------------------------------------------------------
 // Camera rigs
@@ -76,6 +103,16 @@ function framedPose(bounds: ReturnType<typeof planBounds>): OrbitPose {
   };
 }
 
+/** Where the intro camera starts: higher, further out, swung round a quarter. */
+function introPose(bounds: ReturnType<typeof planBounds>): OrbitPose {
+  const end = framedPose(bounds);
+  const sph = new THREE.Spherical().setFromVector3(end.position.clone().sub(end.target));
+  sph.radius *= 1.55;
+  sph.phi *= 0.6;
+  sph.theta -= 0.7;
+  return { position: new THREE.Vector3().setFromSpherical(sph).add(end.target), target: end.target };
+}
+
 /**
  * Survives the rigs unmounting (Orbit ↔ Walk) and the viewport unmounting
  * (Plan-only view), so coming back to orbit returns to where the user was.
@@ -124,7 +161,7 @@ function OrbitRig({ rig, onZoomUi }: RigProps) {
    * so damping is never fought.
    */
   const fly = useCallback(
-    (to: OrbitPose, duration: number = DUR.flight) => {
+    (to: OrbitPose, duration: number = DUR.flight, ease: Easing = easeInOutCubic) => {
       const c = controls.current;
       if (!c) return;
       goalDistance.current = null;
@@ -140,7 +177,7 @@ function OrbitRig({ rig, onZoomUi }: RigProps) {
       const sph = new THREE.Spherical();
       slot.current.run({
         duration,
-        ease: easeInOutCubic,
+        ease,
         onUpdate: (t) => {
           target.lerpVectors(fromTarget, to.target, t);
           sph.set(Math.exp(lerp(r0, r1, t)), lerp(s0.phi, s1.phi, t), s0.theta + dTheta * t);
@@ -194,7 +231,11 @@ function OrbitRig({ rig, onZoomUi }: RigProps) {
       cameraMemory.frameNext || !cameraMemory.orbit ? framedPose(boundsRef.current) : cameraMemory.orbit;
     cameraMemory.frameNext = false;
 
-    if (!placedCameras.has(camera)) {
+    if (introPending()) {
+      // The build-up owns the camera: start high and wide, fly in once it plays.
+      placedCameras.add(camera);
+      placeIntro();
+    } else if (!placedCameras.has(camera)) {
       // A fresh canvas: no motion to continue from, and the boot overlay is up.
       placedCameras.add(camera);
       camera.position.copy(destination.position);
@@ -228,6 +269,48 @@ function OrbitRig({ rig, onZoomUi }: RigProps) {
     // Mount only; plan edits re-centre the target below without moving the camera.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // --- build-up intro -----------------------------------------------------
+  const flownSeq = useRef(-1);
+  const openedAt = useStore((s) => s.openedAt);
+  const placeIntro = useCallback(() => {
+    const c = controls.current;
+    if (!c) return;
+    slot.current.cancel();
+    const pose = introPose(boundsRef.current);
+    camera.position.copy(pose.position);
+    c.target.copy(pose.target);
+    setFov(camera, DEFAULT_FOV);
+    c.update();
+    invalidate();
+  }, [camera, invalidate]);
+
+  // A new plan opened while the canvas is warm: same intro, no new pipeline.
+  const firstOpen = useRef(openedAt);
+  useEffect(() => {
+    if (openedAt === firstOpen.current) return;
+    firstOpen.current = openedAt;
+    if (introPending()) placeIntro();
+    else fly(framedPose(boundsRef.current));
+  }, [openedAt, placeIntro, fly]);
+
+  useFrame(() => {
+    if (!introStarted() || flownSeq.current === introSeq()) return;
+    flownSeq.current = introSeq();
+    // Settles slightly after the walls finish, so the last motion is the camera's.
+    fly(framedPose(boundsRef.current), introRemainingMs(performance.now()) + 260, easeOutCubic);
+  });
+
+  useEffect(
+    () =>
+      onIntroSkip((source) => {
+        flownSeq.current = introSeq();
+        // A grab on the canvas hands the camera to the user (OrbitControls'
+        // own start event stops the flight); anything else lands it quickly.
+        if (source !== 'canvas') fly(framedPose(boundsRef.current), DUR.med, easeOutCubic);
+      }),
+    [fly],
+  );
 
   // Keep orbiting about the building as the plan is edited.
   const firstBounds = useRef(true);
@@ -519,6 +602,37 @@ function SiteGrid() {
 // Scene
 // ---------------------------------------------------------------------------
 
+/**
+ * Starts the intro clock on the first frame actually presented (never during
+ * a cold-start compile), and lets any interaction skip it.
+ */
+function IntroDirector() {
+  const rendererReady = useStore((s) => s.rendererReady);
+  const domElement = useThree((state) => state.gl.domElement);
+
+  useFrame(() => {
+    if (rendererReady && introPending()) beginIntro(performance.now());
+  });
+
+  useEffect(() => {
+    const skip = (event: Event) => {
+      if (!introPending()) return;
+      skipIntro(event.target === domElement ? 'canvas' : 'other');
+    };
+    const opts = { capture: true, passive: true } as const;
+    window.addEventListener('pointerdown', skip, opts);
+    window.addEventListener('wheel', skip, opts);
+    window.addEventListener('keydown', skip, opts);
+    return () => {
+      window.removeEventListener('pointerdown', skip, opts);
+      window.removeEventListener('wheel', skip, opts);
+      window.removeEventListener('keydown', skip, opts);
+    };
+  }, [domElement]);
+
+  return null;
+}
+
 function SceneContent({ manifest, ...rigProps }: { manifest: TextureManifest } & RigProps) {
   const render = useStore((s) => s.render);
   const cameraMode = useStore((s) => s.cameraMode);
@@ -539,7 +653,13 @@ function SceneContent({ manifest, ...rigProps }: { manifest: TextureManifest } &
       <Suspense fallback={null}>
         <Hdri url={render.hdri} intensity={render.envIntensity} />
       </Suspense>
-      <Sun intensity={render.sunIntensity} />
+      <Sun
+        intensity={render.sunIntensity}
+        hour={render.sunHour}
+        envIntensity={render.envIntensity}
+        exposure={render.exposure}
+      />
+      <IntroDirector />
       <Ground />
       {render.showGrid && <SiteGrid />}
       <Building manifest={manifest} />
@@ -610,6 +730,22 @@ function ViewportHud() {
   );
 }
 
+function PreviewBadge() {
+  const proposal = usePreviewProposal();
+  const in3d = useStore((s) => s.previewIn3d);
+  const setIn3d = useStore((s) => s.setPreviewIn3d);
+  if (!proposal || !in3d || proposal.status !== 'PENDING') return null;
+  return (
+    <div className="viewport-preview">
+      <span className="plan-diff-swatch" />
+      Previewing proposal by <b>{proposal.author}</b>
+      <button className="chip" onClick={() => setIn3d(false)}>
+        Show current
+      </button>
+    </div>
+  );
+}
+
 function ViewportZoom({
   rig,
   ui,
@@ -647,6 +783,8 @@ function ViewportZoom({
 export function Viewport() {
   const [manifest, setManifest] = useState<TextureManifest | null>(null);
   const rendererReady = useStore((s) => s.rendererReady);
+  // Behind the home screen the studio stays mounted but must not burn the GPU.
+  const paused = useStore((s) => s.screen !== 'studio');
   const rig = useRef<RigApi | null>(null);
   const [zoomUi, setZoomUi] = useState<ZoomUi>({ canZoomIn: true, canZoomOut: true });
 
@@ -667,6 +805,7 @@ export function Viewport() {
         // `shadows` boolean sets exactly that, warning on every frame budget.
         shadows={{ type: THREE.PCFShadowMap }}
         dpr={[1, 1.75]}
+        frameloop={paused ? 'never' : 'always'}
         camera={{ fov: DEFAULT_FOV, near: 0.05, far: 400, position: [16, 11, 18] }}
         // `WebGPURenderer.init()` is async, which is why the scene lives behind a
         // <Suspense> boundary. WebGL2 is the degradation tier, not a second
@@ -695,6 +834,8 @@ export function Viewport() {
           to compile on a cold start. Say so rather than showing a black box. */}
       {!rendererReady && <ViewportBooting stage="compiling" />}
       {rendererReady && <ViewportHud />}
+      {rendererReady && <PreviewBadge />}
+      {rendererReady && <SunControl />}
       {rendererReady && <ViewportZoom rig={rig} ui={zoomUi} />}
     </>
   );

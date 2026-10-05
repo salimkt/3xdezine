@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Material, Surface, Tier } from '@shared/types';
 import { materialsForSurface, targetsFor, useStore } from '../store';
 import { moneyPrecise, unitLabel } from '../lib/format';
-import { assetUrl, EMPTY_MANIFEST, loadTextureManifest, type TextureManifest } from '../lib/materials';
-import { IconCheck } from './icons';
+import { assetUrl, EMPTY_MANIFEST, loadTextureManifest, type TextureManifest } from '../lib/assets';
+import { IconCheck, IconLock } from './icons';
+import { canEditFinishes } from '@shared/rules';
 
 const SURFACE_LABEL: Record<Surface, string> = {
   FLOOR: 'Floor',
@@ -82,7 +83,8 @@ export function MaterialPalette() {
     );
   }, [catalog, surfaceTarget, tier, query]);
 
-  const disabled = selection.kind === null;
+  const finishes = canEditFinishes(project);
+  const disabled = selection.kind === null || !finishes.allowed;
 
   return (
     <div className="panel palette-panel">
@@ -91,7 +93,12 @@ export function MaterialPalette() {
         <span className="badge badge-quiet">{materials.length}</span>
       </header>
 
-      {disabled ? (
+      {!finishes.allowed ? (
+        <p className="lock-note">
+          <IconLock size={12} />
+          <span>{finishes.reason ?? 'Finishes are locked for this plan.'}</span>
+        </p>
+      ) : disabled ? (
         <p className="hint">Select a room, a wall or the roof to apply a finish.</p>
       ) : (
         <div className="surface-tabs">

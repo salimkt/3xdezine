@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Opening, Room, Vec2, Wall } from '@shared/types';
+import type { EditCheck, EditSuggestion, Opening, PlanEdit, Project, Room, Vec2, Wall } from '@shared/types';
 import { useStore } from '../store';
-import { polygonArea, polygonCentroid, planBounds, wallLength } from '../lib/geometry';
+import { polygonArea, polygonCentroid, planBounds, wallLength, wallsAtCorner } from '../lib/planMath';
+import { applyEdits, canEditWall, checkEdit, effectivePolicy } from '@shared/rules';
+import { proposedProject, usePreviewProposal } from '../lib/checks';
+import { PlanCheckBadge, SeverityIcon } from './PlanCheckPanel';
+import { LEVELS } from './PolicyMenu';
+import { IconLock } from './icons';
 import { area as fmtArea, metres } from '../lib/format';
 import { DUR, TweenSlot, easeOutCubic, lerp, prefersReducedMotion } from '../lib/motion';
 import { ZoomCluster } from './ZoomCluster';
@@ -91,14 +96,44 @@ interface Size {
 type HitTarget =
   | { kind: 'room'; id: string }
   | { kind: 'wall'; id: string }
-  | { kind: 'handle'; wallId: string; which: 'start' | 'end' }
+  | { kind: 'handle'; wallId: string; which: 'start' | 'end'; locked: string | null }
   | { kind: 'bg' };
+
+/** The live state of a corner drag, recomputed at most once per frame. */
+interface Draft {
+  from: Vec2;
+  to: Vec2;
+  base: Project;
+  edits: PlanEdit[];
+  check: EditCheck;
+  /** Cursor, in stage pixels, for the inline violation card. */
+  sx: number;
+  sy: number;
+}
+
+/** What to offer after a drag that broke a rule, or any drag under review. */
+interface Release extends Draft {
+  review: boolean;
+}
+
+/** A brief explanation pinned near the cursor, e.g. why a corner would not move. */
+interface Tip {
+  text: string;
+  sx: number;
+  sy: number;
+  at: number;
+}
+
+const firstEdit = (s: EditSuggestion) => s.edits.find((e) => e.kind === 'MOVE_CORNER');
+const sameRoomShape = (a: Room, b: Room) =>
+  a.polygon.length === b.polygon.length &&
+  a.polygon.every((p, i) => Math.abs(p.x - b.polygon[i].x) < 1e-4 && Math.abs(p.z - b.polygon[i].z) < 1e-4);
 
 type Gesture =
   | { type: 'none' }
   | { type: 'press'; id: number; x: number; y: number; target: HitTarget; cam: Cam }
   | { type: 'pan'; id: number; x: number; y: number; cam: Cam }
-  | { type: 'corner'; id: number; wallId: string; which: 'start' | 'end' }
+  | { type: 'corner'; id: number; wallId: string; which: 'start' | 'end'; from: Vec2; base: Project }
   | { type: 'pinch'; ids: [number, number]; dist: number; world: Vec2; k: number };
 
 const clampZoom = (k: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, k));
@@ -113,6 +148,7 @@ function hitTarget(node: EventTarget | null): HitTarget {
       kind: 'handle',
       wallId: el.getAttribute('data-wall') ?? '',
       which: el.getAttribute('data-which') === 'end' ? 'end' : 'start',
+      locked: el.getAttribute('data-locked'),
     };
   }
   if (kind === 'room') return { kind: 'room', id: el.getAttribute('data-id') ?? '' };
@@ -130,14 +166,36 @@ function isTextEntry(node: EventTarget | null): boolean {
   return !['button', 'checkbox', 'radio', 'range', 'submit', 'reset'].includes(type);
 }
 
+/** Places a floating card beside the cursor, flipped and clamped to stay on stage. */
+function tipStyle(sx: number, sy: number, size: Size | null, width = 260): React.CSSProperties {
+  const w = size?.w ?? 800;
+  const h = size?.h ?? 600;
+  const fit = Math.min(width, w - 16);
+  if (sx + 18 + fit <= w - 8) return { left: sx + 18, top: clampTop(sy - 12, h), width: fit };
+  if (sx - 18 - fit >= 8) return { left: sx - 18 - fit, top: clampTop(sy - 12, h), width: fit };
+  // No room either side (a narrow pane): sit below the cursor, or above it.
+  const left = Math.min(Math.max(8, sx - fit / 2), w - 8 - fit);
+  return sy < h / 2 ? { left, top: sy + 26, width: fit } : { left, bottom: h - sy + 26, width: fit };
+}
+
+function clampTop(top: number, h: number) {
+  return Math.min(Math.max(8, top), Math.max(8, h - 200));
+}
+
 export function PlanEditor() {
   const project = useStore((s) => s.project);
   const catalog = useStore((s) => s.catalog);
   const selection = useStore((s) => s.select);
   const selected = useStore((s) => s.selection);
   const setSurfaceTarget = useStore((s) => s.setSurfaceTarget);
-  const moveWallEndpoint = useStore((s) => s.moveWallEndpoint);
   const lastApplied = useStore((s) => s.lastApplied);
+  const setProject = useStore((s) => s.setProject);
+  const proposeEdits = useStore((s) => s.proposeEdits);
+  const author = useStore((s) => s.author);
+  const setAuthor = useStore((s) => s.setAuthor);
+  const focus = useStore((s) => s.focus);
+  const preview = usePreviewProposal();
+  const policy = effectivePolicy(project);
 
   const floor = project.floors[0];
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -148,6 +206,15 @@ export function PlanEditor() {
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [snap, setSnap] = useState(true);
   const [cursor, setCursor] = useState<Vec2 | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [release, setRelease] = useState<Release | null>(null);
+  const [note, setNote] = useState('');
+  const [tip, setTip] = useState<Tip | null>(null);
+  const draftRef = useRef<Draft | null>(null);
+  const releaseRef = useRef<Release | null>(null);
+  releaseRef.current = release;
+  const pendingMove = useRef<{ to: Vec2; sx: number; sy: number } | null>(null);
+  const moveFrame = useRef(0);
 
   // Everything the native listeners read lives in refs, so they are bound
   // once and never see a stale closure.
@@ -409,6 +476,80 @@ export function PlanEditor() {
     [catalog],
   );
 
+  // --- edit policy, live checks, suggestions -----------------------------
+
+  const stagePoint = useCallback((clientX: number, clientY: number) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    return rect ? { sx: clientX - rect.left, sy: clientY - rect.top } : { sx: 0, sy: 0 };
+  }, []);
+
+  const showTip = useCallback(
+    (text: string, clientX: number, clientY: number) =>
+      setTip({ text, ...stagePoint(clientX, clientY), at: performance.now() }),
+    [stagePoint],
+  );
+
+  useEffect(() => {
+    if (!tip) return;
+    const timer = window.setTimeout(() => setTip((t) => (t?.at === tip.at ? null : t)), 2600);
+    return () => window.clearTimeout(timer);
+  }, [tip]);
+
+  /** Closes the post-drag card. An edit that broke a hard rule does not survive being ignored. */
+  const dismissRelease = useCallback(
+    (mode: 'cancel' | 'auto') => {
+      const r = releaseRef.current;
+      if (!r) return;
+      const hasError = !r.check.allowed || r.check.violations.some((v) => v.severity === 'ERROR');
+      if (!r.review && (mode === 'cancel' || hasError)) setProject(r.base);
+      releaseRef.current = null;
+      setRelease(null);
+    },
+    [setProject],
+  );
+
+  const commitRelease = useCallback(
+    (edits: PlanEdit[]) => {
+      const r = releaseRef.current;
+      if (!r) return;
+      if (r.review) proposeEdits(edits, note);
+      else setProject(applyEdits(r.base, edits));
+      releaseRef.current = null;
+      setRelease(null);
+    },
+    [note, proposeEdits, setProject],
+  );
+
+  useEffect(() => setNote(''), [release?.base]);
+
+  // Select-and-frame requests, e.g. from the plan check list.
+  useEffect(() => {
+    if (!focus) return;
+    const f = useStore.getState().project.floors[0];
+    const points =
+      focus.kind === 'room'
+        ? f?.rooms.find((r) => r.id === focus.id)?.polygon
+        : (() => {
+            const w = f?.walls.find((x) => x.id === focus.id);
+            return w ? [w.start, w.end] : undefined;
+          })();
+    const sz = sizeRef.current;
+    if (!points?.length || !sz) return;
+    const xs = points.map((p) => p.x);
+    const zs = points.map((p) => p.z);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minZ = Math.min(...zs);
+    const maxZ = Math.max(...zs);
+    const pad = 1.6;
+    const h = Math.max(1, sz.h - FIT_RESERVE_PX);
+    const k = clampZoom(
+      Math.min(2.4, Math.min(sz.w / (maxX - minX + pad * 2), h / (maxZ - minZ + pad * 2)) / PX_PER_M_AT_100),
+    );
+    fitted.current = false;
+    animateTo({ cx: (minX + maxX) / 2, cy: (minZ + maxZ) / 2 + FIT_RESERVE_PX / 2 / (k * PX_PER_M_AT_100), k });
+  }, [focus, animateTo]);
+
   // --- pointers: corner drags, pans, pinches -------------------------------
 
   const beginPinch = useCallback(() => {
@@ -435,6 +576,7 @@ export function PlanEditor() {
     const c = camRef.current;
     if (!c) return;
     stopAnimations();
+    if (releaseRef.current) dismissRelease('auto');
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     try {
       svgRef.current?.setPointerCapture(event.pointerId);
@@ -457,15 +599,55 @@ export function PlanEditor() {
       fitted.current = false;
       setPanning(true);
     } else if (target.kind === 'handle') {
-      gesture.current = { type: 'corner', id: event.pointerId, wallId: target.wallId, which: target.which };
-      setDrag({ wallId: target.wallId, which: target.which });
       selection('wall', target.wallId);
+      // A locked corner is not silently ignored: say why it will not move. The
+      // drag still runs, so the rules engine can offer what *is* allowed
+      // (move the neighbouring wall instead, slide along the envelope...).
+      if (target.locked) showTip(target.locked, event.clientX, event.clientY);
+      else setTip(null);
+      const base = useStore.getState().project;
+      const wall = base.floors[0]?.walls.find((w) => w.id === target.wallId);
+      if (!wall) return;
+      gesture.current = {
+        type: 'corner',
+        id: event.pointerId,
+        wallId: target.wallId,
+        which: target.which,
+        from: { ...wall[target.which] },
+        base,
+      };
+      setDrag({ wallId: target.wallId, which: target.which });
     } else {
       gesture.current = { type: 'press', target, ...at };
     }
   };
 
   useEffect(() => {
+    /** One checkEdit per frame, however fast the pointer reports. */
+    const flushMove = () => {
+      moveFrame.current = 0;
+      const g = gesture.current;
+      const m = pendingMove.current;
+      pendingMove.current = null;
+      if (g.type !== 'corner' || !m) return;
+      const edits: PlanEdit[] = [{ kind: 'MOVE_CORNER', from: g.from, to: m.to }];
+      const moved = Math.hypot(m.to.x - g.from.x, m.to.z - g.from.z) > 1e-4;
+      const review = effectivePolicy(g.base).requireReview;
+      let check: EditCheck = { allowed: true, violations: [], suggestions: [] };
+      try {
+        if (moved) check = checkEdit(g.base, edits);
+      } catch (error) {
+        console.warn('[3xDezine] checkEdit failed', error);
+      }
+      // A refused move leaves the plan where it was; the draft carries the
+      // reason and any alternative the engine found.
+      if (!review) setProject(moved && check.allowed ? applyEdits(g.base, edits) : g.base);
+      if (!check.allowed) setTip(null);
+      const next: Draft = { from: g.from, to: m.to, base: g.base, edits, check, sx: m.sx, sy: m.sy };
+      draftRef.current = next;
+      setDraft(next);
+    };
+
     const move = (event: PointerEvent) => {
       if (!pointers.current.has(event.pointerId)) return;
       pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -478,10 +660,13 @@ export function PlanEditor() {
         const to = useSnap
           ? { x: Math.round(world.x / SNAP_M) * SNAP_M, z: Math.round(world.z / SNAP_M) * SNAP_M }
           : world;
-        moveWallEndpoint(g.wallId, g.which, {
-          x: Math.round(to.x * 1000) / 1000,
-          z: Math.round(to.z * 1000) / 1000,
-        });
+        const rect = svgRef.current?.getBoundingClientRect();
+        pendingMove.current = {
+          to: { x: Math.round(to.x * 1000) / 1000, z: Math.round(to.z * 1000) / 1000 },
+          sx: event.clientX - (rect?.left ?? 0),
+          sy: event.clientY - (rect?.top ?? 0),
+        };
+        if (!moveFrame.current) moveFrame.current = requestAnimationFrame(flushMove);
       } else if (g.type === 'press' && g.id === event.pointerId) {
         if (Math.hypot(event.clientX - g.x, event.clientY - g.y) > DRAG_SLOP) {
           gesture.current = { type: 'pan', id: g.id, x: g.x, y: g.y, cam: g.cam };
@@ -512,6 +697,26 @@ export function PlanEditor() {
       if (!pointers.current.has(event.pointerId)) return;
       pointers.current.delete(event.pointerId);
       const g = gesture.current;
+
+      if (g.type === 'corner' && g.id === event.pointerId) {
+        if (moveFrame.current) cancelAnimationFrame(moveFrame.current);
+        flushMove();
+        const d = draftRef.current;
+        draftRef.current = null;
+        setDraft(null);
+        const still = gesture.current;
+        if (d && still.type === 'corner') {
+          const moved = Math.hypot(d.to.x - d.from.x, d.to.z - d.from.z) > 1e-4;
+          const review = effectivePolicy(d.base).requireReview;
+          if (moved && !d.check.allowed && !d.check.suggestions.length) {
+            showTip(d.check.reason ?? 'This edit is not allowed.', event.clientX, event.clientY);
+          } else if (moved && (review || !d.check.allowed || d.check.violations.length > 0)) {
+            const r: Release = { ...d, review };
+            releaseRef.current = r;
+            setRelease(r);
+          }
+        }
+      }
 
       if (g.type === 'press' && g.id === event.pointerId && event.type === 'pointerup') {
         // A click, not a drag: only now does it select.
@@ -552,7 +757,7 @@ export function PlanEditor() {
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
     };
-  }, [toWorld, fromCentre, moveWallEndpoint, commit, selection, setSurfaceTarget]);
+  }, [toWorld, fromCentre, commit, selection, setSurfaceTarget, setProject, showTip]);
 
   // --- keyboard ------------------------------------------------------------
 
@@ -567,6 +772,11 @@ export function PlanEditor() {
           spaceRef.current = true;
           setSpaceHeld(true);
         }
+        return;
+      }
+      if (event.key === 'Escape' && releaseRef.current) {
+        dismissRelease('cancel');
+        event.preventDefault();
         return;
       }
       // Cmd/Ctrl +/- belong to the browser's page zoom.
@@ -596,7 +806,7 @@ export function PlanEditor() {
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', blur);
     };
-  }, [zoomBy, resetZoom, fit]);
+  }, [zoomBy, resetZoom, fit, dismissRelease]);
 
   const view: ViewBox | null =
     cam && size
@@ -622,15 +832,35 @@ export function PlanEditor() {
       >
         Snap {SNAP_M * 100} cm
       </button>
+      {(policy.level === 'VIEW' || policy.level === 'FINISHES' || policy.requireReview) && (
+        <span
+          className={`plan-policy ${policy.requireReview && policy.level !== 'VIEW' && policy.level !== 'FINISHES' ? 'plan-policy-review' : ''}`}
+          title={LEVELS.find((l) => l.id === policy.level)?.detail}
+        >
+          <IconLock size={11} />
+          {policy.level === 'VIEW'
+            ? 'View only'
+            : policy.level === 'FINISHES'
+              ? 'Geometry locked'
+              : 'Review mode'}
+        </span>
+      )}
       <span className="plan-readout">
         {cursor ? (
           <>
             x <b>{cursor.x.toFixed(2)}</b> &nbsp;y <b>{cursor.z.toFixed(2)}</b> m
           </>
+        ) : policy.level === 'VIEW' || policy.level === 'FINISHES' ? (
+          'plan is locked'
+        ) : policy.requireReview ? (
+          'drag corners to propose'
         ) : (
           'drag corners to edit'
         )}
       </span>
+      <PlanCheckBadge
+        onClick={() => document.getElementById('plan-check')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+      />
     </div>
   );
 
@@ -659,7 +889,18 @@ export function PlanEditor() {
     );
   }
 
-  const endpoints: Array<{ key: string; wallId: string; which: 'start' | 'end'; p: Vec2 }> = [];
+  const wallLock = new Map<string, string | null>();
+  for (const wall of floor.walls) {
+    const r = canEditWall(project, wall.id, policy);
+    wallLock.set(wall.id, r.allowed ? null : (r.reason ?? 'This wall is locked.'));
+  }
+  const endpoints: Array<{
+    key: string;
+    wallId: string;
+    which: 'start' | 'end';
+    p: Vec2;
+    locked: string | null;
+  }> = [];
   const seen = new Set<string>();
   for (const wall of floor.walls) {
     for (const which of ['start', 'end'] as const) {
@@ -667,9 +908,51 @@ export function PlanEditor() {
       const key = `${p.x.toFixed(3)}:${p.z.toFixed(3)}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      endpoints.push({ key, wallId: wall.id, which, p });
+      // A corner moves every wall that meets there, so one locked wall locks it.
+      const blocker = wallsAtCorner(floor.walls, p).find((w) => wallLock.get(w.id));
+      endpoints.push({ key, wallId: wall.id, which, p, locked: blocker ? wallLock.get(blocker.id)! : null });
     }
   }
+  // Per-wall padlocks only where some walls move and these do not; at View or
+  // Finishes everything is locked and the toolbar says so once.
+  const showWallLocks = policy.level === 'LAYOUT' || (policy.level !== 'FULL' && policy.lockedWallIds.length > 0);
+  const geometryOpen = policy.level === 'LAYOUT' || policy.level === 'FULL';
+
+  // --- ghosts: live suggestion, review draft, proposal diff -----------------
+  const active = draft ?? release;
+  const suggestion = active?.check.suggestions[0];
+  const suggestionTo = suggestion ? firstEdit(suggestion) : undefined;
+  const changedRooms = (base: Project, next: Project) =>
+    next.floors[0]?.rooms.filter((r) => {
+      const was = base.floors[0]?.rooms.find((x) => x.id === r.id);
+      return !was || !sameRoomShape(was, r);
+    }) ?? [];
+  const suggestionRooms =
+    active && suggestion ? changedRooms(active.base, applyEdits(active.base, suggestion.edits)) : [];
+  // Under review the plan itself does not move, so the attempt is drawn as a ghost.
+  const reviewing = active ? effectivePolicy(active.base).requireReview : false;
+  const attemptRooms =
+    active && reviewing && active.check.allowed
+      ? changedRooms(active.base, applyEdits(active.base, active.edits))
+      : [];
+  const diff =
+    preview && preview.status === 'PENDING' && !active
+      ? (() => {
+          const next = proposedProject(project, preview);
+          const rooms = changedRooms(project, next);
+          const walls =
+            next.floors[0]?.walls.filter((w) => {
+              const was = floor.walls.find((x) => x.id === w.id);
+              return (
+                !was ||
+                Math.hypot(was.start.x - w.start.x, was.start.z - w.start.z) > 1e-4 ||
+                Math.hypot(was.end.x - w.end.x, was.end.z - w.end.z) > 1e-4
+              );
+            }) ?? [];
+          const moves = preview.edits.flatMap((e) => (e.kind === 'MOVE_CORNER' ? [e] : []));
+          return { rooms, walls, moves };
+        })()
+      : null;
 
   const selectedWall =
     selected.kind === 'wall' ? floor.walls.find((w) => w.id === selected.id) : undefined;
@@ -891,6 +1174,103 @@ export function PlanEditor() {
             );
           })}
 
+          {/* Padlocks on walls this level cannot move */}
+          {showWallLocks &&
+            floor.walls.map((wall) => {
+              if (!wallLock.get(wall.id)) return null;
+              const mx = (wall.start.x + wall.end.x) / 2;
+              const mz = (wall.start.z + wall.end.z) / 2;
+              return (
+                <g
+                  key={`lock-${wall.id}`}
+                  className="plan-lock"
+                  transform={`translate(${mx} ${mz}) scale(${px(1)})`}
+                  pointerEvents="none"
+                >
+                  <circle r={7.5} />
+                  <rect x={-3.2} y={-1.2} width={6.4} height={4.8} rx={1} />
+                  <path d="M -1.9 -1.2 V -2.9 A 1.9 1.9 0 0 1 1.9 -2.9 V -1.2" />
+                </g>
+              );
+            })}
+
+          {/* Proposal diff: proposed geometry ghosted over the current plan */}
+          {diff && (
+            <g className="plan-diff" pointerEvents="none">
+              {diff.rooms.map((room) => (
+                <polygon
+                  key={`diff-${room.id}`}
+                  className="plan-diff-room"
+                  points={room.polygon.map((p) => `${p.x},${p.z}`).join(' ')}
+                  strokeWidth={px(1.6)}
+                  strokeDasharray={`${px(5)} ${px(4)}`}
+                />
+              ))}
+              {diff.walls.map((w) => (
+                <line
+                  key={`diffw-${w.id}`}
+                  className="plan-diff-wall"
+                  x1={w.start.x}
+                  y1={w.start.z}
+                  x2={w.end.x}
+                  y2={w.end.z}
+                  strokeWidth={w.thicknessM}
+                />
+              ))}
+              {diff.moves.map((m, i) => (
+                <g key={`diffm-${i}`}>
+                  <line
+                    className="plan-diff-arrow"
+                    x1={m.from.x}
+                    y1={m.from.z}
+                    x2={m.to.x}
+                    y2={m.to.z}
+                    strokeWidth={px(1.4)}
+                    strokeDasharray={`${px(3)} ${px(3)}`}
+                  />
+                  <circle className="plan-diff-dot" cx={m.to.x} cy={m.to.z} r={px(4.5)} strokeWidth={px(1.6)} />
+                </g>
+              ))}
+            </g>
+          )}
+
+          {/* Under review the plan stays put; the attempted shape is a ghost */}
+          {attemptRooms.length > 0 && (
+            <g className="plan-attempt" pointerEvents="none">
+              {attemptRooms.map((room) => (
+                <polygon
+                  key={`att-${room.id}`}
+                  points={room.polygon.map((p) => `${p.x},${p.z}`).join(' ')}
+                  strokeWidth={px(1.5)}
+                  strokeDasharray={`${px(5)} ${px(4)}`}
+                />
+              ))}
+            </g>
+          )}
+
+          {/* The rules engine's alternative, as a dashed ghost */}
+          {suggestion && (
+            <g className="plan-suggest" pointerEvents="none">
+              {suggestionRooms.map((room) => (
+                <polygon
+                  key={`sug-${room.id}`}
+                  points={room.polygon.map((p) => `${p.x},${p.z}`).join(' ')}
+                  strokeWidth={px(1.5)}
+                  strokeDasharray={`${px(2)} ${px(3.5)}`}
+                />
+              ))}
+              {suggestionTo && (
+                <circle
+                  cx={suggestionTo.to.x}
+                  cy={suggestionTo.to.z}
+                  r={px(6.5)}
+                  strokeWidth={px(1.6)}
+                  strokeDasharray={`${px(2.5)} ${px(2.5)}`}
+                />
+              )}
+            </g>
+          )}
+
           {/* Selected wall dimension, on a plate so it survives any background */}
           {selectedWall &&
             (() => {
@@ -918,7 +1298,10 @@ export function PlanEditor() {
 
           {/* Draggable corners */}
           {endpoints.map((endpoint) => {
-            const active = drag?.wallId === endpoint.wallId;
+            const dragging = drag?.wallId === endpoint.wallId && drag.which === endpoint.which;
+            const locked = endpoint.locked;
+            // Fully locked plans keep the corners visible but quiet; a corner
+            // locked by its walls at Layout level is drawn as a square.
             return (
               <g key={endpoint.key}>
                 {/* An invisible, comfortably sized grab target around the dot. */}
@@ -927,18 +1310,40 @@ export function PlanEditor() {
                   cy={endpoint.p.z}
                   r={px(11)}
                   fill="transparent"
-                  className="plan-handle-hit"
+                  className={`plan-handle-hit ${locked ? 'plan-handle-hit-locked' : ''}`}
                   data-hit="handle"
                   data-wall={endpoint.wallId}
                   data-which={endpoint.which}
+                  data-locked={locked ?? undefined}
                 />
-                <circle
-                  cx={endpoint.p.x}
-                  cy={endpoint.p.z}
-                  r={px(4.5)}
-                  strokeWidth={px(1.8)}
-                  className={`plan-handle ${active ? 'plan-handle-active' : ''}`}
-                />
+                {locked ? (
+                  geometryOpen ? (
+                    <rect
+                      x={endpoint.p.x - px(3.6)}
+                      y={endpoint.p.z - px(3.6)}
+                      width={px(7.2)}
+                      height={px(7.2)}
+                      rx={px(1.2)}
+                      strokeWidth={px(1.4)}
+                      className="plan-handle plan-handle-locked"
+                    />
+                  ) : (
+                    <circle
+                      cx={endpoint.p.x}
+                      cy={endpoint.p.z}
+                      r={px(2.4)}
+                      className="plan-handle-dormant"
+                    />
+                  )
+                ) : (
+                  <circle
+                    cx={endpoint.p.x}
+                    cy={endpoint.p.z}
+                    r={px(4.5)}
+                    strokeWidth={px(1.8)}
+                    className={`plan-handle ${dragging ? 'plan-handle-active' : ''}`}
+                  />
+                )}
               </g>
             );
           })}
@@ -994,6 +1399,124 @@ export function PlanEditor() {
             glazing
           </span>
         </div>
+
+        {tip && (
+          <div key={tip.at} className="plan-tip" style={tipStyle(tip.sx, tip.sy, size)} role="status">
+            <IconLock size={12} />
+            <span>{tip.text}</span>
+          </div>
+        )}
+
+        {draft && (!draft.check.allowed || draft.check.violations.length > 0) && (
+          <div className="plan-live" style={tipStyle(draft.sx, draft.sy, size)} aria-live="polite">
+            {!draft.check.allowed && (
+              <div className="sev-row sev-row-locked">
+                <IconLock size={11} />
+                <span>{draft.check.reason ?? 'This edit is not allowed.'}</span>
+              </div>
+            )}
+            {draft.check.violations.slice(0, 3).map((v, i) => (
+              <div key={i} className={`sev-row sev-row-${v.severity.toLowerCase()}`}>
+                <SeverityIcon severity={v.severity} size={11} />
+                <span>{v.message}</span>
+              </div>
+            ))}
+            {suggestion && <div className="plan-live-hint">Ghost: {suggestion.title}</div>}
+          </div>
+        )}
+
+        {release && (
+          <div
+            className="plan-release"
+            style={tipStyle(release.sx, release.sy, size, 300)}
+            role="dialog"
+            aria-label={release.review ? 'Propose this change' : 'This edit breaks a rule'}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <div className="plan-release-head">
+              {!release.check.allowed
+                ? 'That move is not allowed'
+                : release.review
+                  ? 'Propose this change'
+                  : 'This edit breaks a rule'}
+            </div>
+            {!release.check.allowed && (
+              <div className="sev-row sev-row-locked">
+                <IconLock size={11} />
+                <span>{release.check.reason}</span>
+              </div>
+            )}
+            {release.check.violations.length > 0 && (
+              <div className="plan-release-violations">
+                {release.check.violations.map((v, i) => (
+                  <div key={i} className={`sev-row sev-row-${v.severity.toLowerCase()}`}>
+                    <SeverityIcon severity={v.severity} size={11} />
+                    <span>
+                      {v.message}
+                      {v.reference && <small> · {v.reference}</small>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {release.review && (release.check.allowed || release.check.suggestions.length > 0) && (
+              <div className="plan-release-fields">
+                {!author.trim() && (
+                  <input
+                    className="input"
+                    placeholder="Your name (asked once)"
+                    value={author}
+                    maxLength={40}
+                    onChange={(event) => setAuthor(event.target.value)}
+                  />
+                )}
+                <input
+                  className="input"
+                  placeholder="Note for the reviewer (optional)"
+                  value={note}
+                  maxLength={160}
+                  onChange={(event) => setNote(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') commitRelease(release.edits);
+                  }}
+                />
+              </div>
+            )}
+            <div className="plan-release-actions">
+              {release.check.suggestions.map((sug) => (
+                <button
+                  key={sug.id}
+                  className="btn btn-small btn-primary plan-release-suggest"
+                  onClick={() => commitRelease(sug.edits)}
+                  title={sug.rationale}
+                >
+                  {release.review ? `Propose: ${sug.title}` : sug.title}
+                </button>
+              ))}
+              <div className="plan-release-row">
+                {release.check.allowed &&
+                  (release.review || !release.check.violations.some((v) => v.severity === 'ERROR')) && (
+                  <button
+                    className={`btn btn-small ${release.review && !release.check.suggestions.length ? 'btn-primary' : ''}`}
+                    onClick={() => commitRelease(release.edits)}
+                  >
+                    {release.review ? 'Submit proposal' : 'Apply anyway'}
+                  </button>
+                )}
+                <button className="btn btn-small btn-ghost" onClick={() => dismissRelease('cancel')}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {diff && preview && (
+          <div className="plan-diff-banner">
+            <span className="plan-diff-swatch" />
+            Proposal by <b>{preview.author}</b> — dashed is proposed
+          </div>
+        )}
 
         <ZoomCluster
           className="plan-zoom"

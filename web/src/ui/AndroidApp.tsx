@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { assetUrl } from '../lib/materials';
+import { assetUrl } from '../lib/assets';
 import { IconAndroid, IconDownload, IconInfo } from './icons';
 
 /**

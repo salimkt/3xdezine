@@ -105,3 +105,46 @@ export function IconFit({ size = 14, className }: IconProps) {
     </svg>
   );
 }
+
+export function IconLock({ size = 14, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <rect x="3.5" y="7" width="9" height="6.5" rx="1.4" />
+      <path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7" />
+    </svg>
+  );
+}
+
+export function IconHome({ size = 14, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M2.5 7.4 8 2.8l5.5 4.6" />
+      <path d="M4 6.3v6.9h8V6.3" />
+    </svg>
+  );
+}
+
+export function IconSun({ size = 14, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="8" cy="8" r="2.8" />
+      <path d="M8 1.6v1.6M8 12.8v1.6M1.6 8h1.6M12.8 8h1.6M3.5 3.5l1.1 1.1M11.4 11.4l1.1 1.1M3.5 12.5l1.1-1.1M11.4 4.6l1.1-1.1" />
+    </svg>
+  );
+}
+
+export function IconPlay({ size = 14, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M5 3.4v9.2l7.4-4.6z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function IconPause({ size = 14, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M5.5 3.5v9M10.5 3.5v9" strokeWidth={2} />
+    </svg>
+  );
+}

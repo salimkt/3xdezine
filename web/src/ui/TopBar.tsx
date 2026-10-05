@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
-import { EMPTY_MANIFEST, loadTextureManifest, type HdriEntry } from '../lib/materials';
+import { EMPTY_MANIFEST, loadTextureManifest, type HdriEntry } from '../lib/assets';
 import { useCost } from './CostPanel';
 import { money } from '../lib/format';
 import { AndroidMenu } from './AndroidApp';
-import { IconChevron } from './icons';
+import { PolicyMenu } from './PolicyMenu';
+import { IconChevron, IconHome } from './icons';
+import { BLANK_META, loadTemplate, loadTemplateIndex } from '../lib/templates';
 import { useAnimatedNumber } from '../lib/motion';
 
 export function TopBar() {
@@ -17,6 +19,8 @@ export function TopBar() {
   const render = useStore((s) => s.render);
   const patchRender = useStore((s) => s.patchRender);
   const resetProject = useStore((s) => s.resetProject);
+  const setProject = useStore((s) => s.setProject);
+  const goHome = useStore((s) => s.goHome);
   const catalogSource = useStore((s) => s.catalogSource);
   const cost = useCost();
   const total = useAnimatedNumber(cost.total);
@@ -28,6 +32,21 @@ export function TopBar() {
   useEffect(() => {
     loadTextureManifest().then((m) => setHdris(m.hdris));
   }, []);
+
+  /** Back to the template this plan was started from, keeping its edit policy. */
+  const reset = async () => {
+    const { templateId, policy } = useStore.getState().project;
+    if (!templateId) return resetProject();
+    try {
+      const index = await loadTemplateIndex();
+      const meta = [...index, BLANK_META].find((m) => m.id === templateId);
+      if (!meta) return resetProject();
+      const fresh = await loadTemplate(meta);
+      setProject(policy ? { ...fresh, policy } : fresh);
+    } catch {
+      resetProject();
+    }
+  };
 
   // A render menu that stays open behind a click in the viewport reads as a
   // stuck panel, so it closes on any outside press and on Escape.
@@ -47,6 +66,9 @@ export function TopBar() {
 
   return (
     <header className="topbar">
+      <button className="btn btn-ghost btn-icon home-btn" onClick={goHome} title="Back to the template gallery" aria-label="Home">
+        <IconHome size={15} />
+      </button>
       <div className="brand">
         <span className="brand-mark">3×</span>
         <span className="brand-text">
@@ -121,6 +143,7 @@ export function TopBar() {
 
       <span className="topbar-divider" />
 
+      <PolicyMenu />
       <AndroidMenu />
 
       <div ref={settingsWrap} style={{ display: 'contents' }}>
@@ -234,7 +257,7 @@ export function TopBar() {
         )}
       </div>
 
-      <button className="btn btn-ghost" onClick={resetProject} title="Discard edits and reload the sample project">
+      <button className="btn btn-ghost" onClick={reset} title="Discard edits and reload the plan this project started from">
         Reset
       </button>
     </header>

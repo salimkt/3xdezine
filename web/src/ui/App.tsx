@@ -1,130 +1,52 @@
-import { Component, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useStore, type ViewMode } from '../store';
-import { DUR, prefersReducedMotion } from '../lib/motion';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { useStore } from '../store';
 import { getCatalog } from '../lib/api';
-import { Viewport } from '../three/Viewport';
-import { PlanEditor } from './PlanEditor';
-import { TopBar } from './TopBar';
-import { Inspector } from './Inspector';
-import { MaterialPalette } from './MaterialPalette';
-import { CostPanel } from './CostPanel';
-import { SuggestionsPanel } from './SuggestionsPanel';
 import { MobileGate } from './AndroidApp';
-import { IconAlert } from './icons';
+import { HomeScreen } from './HomeScreen';
 
 /**
- * A failed 3D pipeline must not take the design tool with it — the plan, the
- * catalog and the estimate all work without a GPU.
+ * The shell: home screen, mobile landing and catalogue fetch. The studio (plan
+ * editor, rail, renderer) is a separate chunk so the first paint carries none
+ * of three.js — and it is prefetched as soon as the home screen is idle, so
+ * choosing a tile rarely waits on the network.
  */
-class ViewportBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
-  state = { error: null as Error | null };
+const loadStudio = () => import('./Studio');
+const Studio = lazy(loadStudio);
+const loadViewport = () => import('../three/Viewport');
 
-  static getDerivedStateFromError(error: Error) {
-    return { error };
+function whenIdle(callback: () => void): () => void {
+  const w = window as Window & {
+    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    cancelIdleCallback?: (id: number) => void;
+  };
+  if (w.requestIdleCallback) {
+    const id = w.requestIdleCallback(callback, { timeout: 2500 });
+    return () => w.cancelIdleCallback?.(id);
   }
-
-  componentDidCatch(error: Error) {
-    console.error('[3xDezine] 3D viewport crashed', error);
-  }
-
-  render() {
-    if (this.state.error) {
-      return (
-        <div className="viewport-overlay viewport-error">
-          <div className="viewport-card">
-            <div className="viewport-card-head">
-              <IconAlert size={16} />
-              <h3>3D viewport unavailable</h3>
-            </div>
-            <p>
-              This machine&rsquo;s graphics stack refused the render pipeline. The plan, the
-              material catalogue and the live estimate are unaffected and keep working.
-            </p>
-            <div className="viewport-error-detail">{this.state.error.message}</div>
-          </div>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
+  const id = window.setTimeout(callback, 600);
+  return () => window.clearTimeout(id);
 }
 
-interface PaneLayout {
-  /** Drives the grid template, and so the animated track sizes. */
-  view: ViewMode;
-  /** Panes in the DOM. A leaving pane stays mounted until it has shrunk away. */
-  plan: boolean;
-  three: boolean;
-  /**
-   * Pixel widths the pane contents are pinned to while the tracks animate. The
-   * pane clips its contents instead of resizing them, so the WebGPU canvas
-   * resizes at most once per switch — never per frame, which would reallocate
-   * every post-processing target and reset TRAA's history on each step.
-   */
-  freeze: { plan?: number; three?: number };
-}
-
-const needs = (view: ViewMode) => ({ plan: view !== '3d', three: view !== '2d' });
-
-/** Mirrors the grid templates in styles.css: `1fr 1.08fr rail`, or one pane and the rail. */
-function targetWidths(view: ViewMode, available: number) {
-  if (view === 'split') return { plan: available / 2.08, three: (available * 1.08) / 2.08 };
-  return view === '2d' ? { plan: available, three: 0 } : { plan: 0, three: available };
-}
-
-function usePaneLayout(view: ViewMode) {
-  const workspace = useRef<HTMLElement>(null);
-  const planPane = useRef<HTMLElement>(null);
-  const threePane = useRef<HTMLElement>(null);
-  const rail = useRef<HTMLElement>(null);
-  const [layout, setLayout] = useState<PaneLayout>(() => ({ view, ...needs(view), freeze: {} }));
-  const settled = useRef(view);
-
-  useLayoutEffect(() => {
-    if (settled.current === view) return;
-    settled.current = view;
-    const want = needs(view);
-    const ws = workspace.current;
-    const stacked = window.matchMedia('(max-width: 860px)').matches;
-    if (!ws || stacked || prefersReducedMotion()) {
-      setLayout({ view, ...want, freeze: {} });
-      return;
-    }
-
-    const available = ws.clientWidth - (rail.current?.offsetWidth ?? 0);
-    const target = targetWidths(view, available);
-    const current = {
-      plan: planPane.current?.offsetWidth ?? 0,
-      three: threePane.current?.offsetWidth ?? 0,
-    };
-    setLayout((prev) => ({
-      view,
-      plan: prev.plan || want.plan,
-      three: prev.three || want.three,
-      freeze: {
-        plan: want.plan ? target.plan : current.plan,
-        three: want.three ? target.three : current.three,
-      },
-    }));
-    const timer = window.setTimeout(
-      () => setLayout({ view, ...want, freeze: {} }),
-      DUR.med + 40,
-    );
-    return () => window.clearTimeout(timer);
-  }, [view]);
-
-  return { layout, refs: { workspace, planPane, threePane, rail } };
-}
-
-function frozenStyle(width: number | undefined) {
-  return width === undefined ? undefined : { width: `${width}px` };
+function StudioLoading() {
+  return (
+    <div className="studio-loading" role="status">
+      <div className="spinner" />
+      <span>Opening the studio…</span>
+    </div>
+  );
 }
 
 export function App() {
-  const view = useStore((s) => s.view);
-  const project = useStore((s) => s.project);
+  const screen = useStore((s) => s.screen);
+  const projectName = useStore((s) => s.project.name);
   const setCatalog = useStore((s) => s.setCatalog);
-  const { layout, refs } = usePaneLayout(view);
+  // Once opened the studio stays mounted behind the home screen: its WebGPU
+  // device and compiled post stack are seconds of work to rebuild.
+  const [studioMounted, setStudioMounted] = useState(screen === 'studio');
+
+  useEffect(() => {
+    if (screen === 'studio') setStudioMounted(true);
+  }, [screen]);
 
   // Prefer the served catalog when the backend is up; fall back silently to the
   // bundled seed, which is the same file the backend seeds from.
@@ -136,40 +58,24 @@ export function App() {
       .catch(() => undefined);
   }, [setCatalog]);
 
+  useEffect(
+    () =>
+      whenIdle(() => {
+        loadStudio().catch(() => undefined);
+        loadViewport().catch(() => undefined);
+      }),
+    [],
+  );
+
   return (
-    <div className="app">
-      <MobileGate projectName={project.name} />
-      <TopBar />
-      <main ref={refs.workspace} className={`workspace workspace-${layout.view}`}>
-        {layout.plan && (
-          <section ref={refs.planPane} className="pane pane-plan">
-            <div
-              className={`pane-body ${layout.freeze.plan !== undefined ? 'pane-body-frozen' : ''}`}
-              style={frozenStyle(layout.freeze.plan)}
-            >
-              <PlanEditor />
-            </div>
-          </section>
-        )}
-        {layout.three && (
-          <section ref={refs.threePane} className="pane pane-3d">
-            <div
-              className={`pane-body ${layout.freeze.three !== undefined ? 'pane-body-frozen' : ''}`}
-              style={frozenStyle(layout.freeze.three)}
-            >
-              <ViewportBoundary>
-                <Viewport />
-              </ViewportBoundary>
-            </div>
-          </section>
-        )}
-        <aside ref={refs.rail} className="rail">
-          <Inspector />
-          <MaterialPalette />
-          <CostPanel />
-          <SuggestionsPanel />
-        </aside>
-      </main>
-    </div>
+    <>
+      <MobileGate projectName={projectName} />
+      {studioMounted && (
+        <Suspense fallback={<StudioLoading />}>
+          <Studio hidden={screen !== 'studio'} />
+        </Suspense>
+      )}
+      {screen === 'home' && <HomeScreen />}
+    </>
   );
 }

@@ -1,13 +1,33 @@
 import { create } from 'zustand';
 import catalogSeed from '@shared/catalog.seed.json';
 import sampleProject from '@shared/sample-project.json';
-import type { Catalog, Material, Project, Surface, Vec2, Wall } from '@shared/types';
+import type {
+  Catalog,
+  EditPolicy,
+  Material,
+  PlanEdit,
+  Project,
+  Surface,
+  Vec2,
+  Wall,
+} from '@shared/types';
+import {
+  acceptProposal as acceptProposalRule,
+  applyEdits,
+  canEditFinishes,
+  createProposal,
+  effectivePolicy,
+  rejectProposal as rejectProposalRule,
+} from '@shared/rules';
+import { loadAuthor, loadSavedProject, saveAuthor, saveProject } from './lib/persist';
 
 export const CATALOG: Catalog = catalogSeed as unknown as Catalog;
 
 function cloneProject(): Project {
   return structuredClone(sampleProject) as unknown as Project;
 }
+
+const saved = loadSavedProject();
 
 // ---------------------------------------------------------------------------
 // Selection
@@ -24,6 +44,7 @@ export interface Selection {
 export type SurfaceTarget = Surface;
 
 export type ViewMode = '2d' | '3d' | 'split';
+export type Screen = 'home' | 'studio';
 export type CameraMode = 'orbit' | 'walk';
 export type ToneMappingMode = 'AGX' | 'NEUTRAL';
 export type QualityMode = 'high' | 'balanced' | 'performance';
@@ -38,10 +59,35 @@ export interface RenderSettings {
   sunIntensity: number;
   showGrid: boolean;
   showCeilings: boolean;
+  /** Clock time in hours (IST), 6..19. Drives the sun along its path for the site latitude. */
+  sunHour: number;
+}
+
+/** A short, non-modal explanation, e.g. why a drag or a material click was refused. */
+export interface Notice {
+  text: string;
+  tone: 'info' | 'warn';
+  at: number;
+}
+
+/** Something the plan should select and frame, e.g. from the plan check list. */
+export interface FocusRequest {
+  kind: 'room' | 'wall';
+  id: string;
+  at: number;
 }
 
 interface StoreState {
+  screen: Screen;
+  /** Bumped each time a project is opened from the home screen; the 3D view plays its build-up on change. */
+  openedAt: number;
   project: Project;
+  /** The proposal whose diff the plan (and optionally the 3D view) is showing. */
+  previewProposalId: string | null;
+  previewIn3d: boolean;
+  author: string;
+  notice: Notice | null;
+  focus: FocusRequest | null;
   catalog: Catalog;
   catalogSource: 'bundled' | 'api';
 
@@ -61,6 +107,21 @@ interface StoreState {
   lastApplied: AppliedMaterial | null;
 
   // actions
+  goHome: () => void;
+  openProject: (project: Project) => void;
+  /** Replaces the whole project, keeping the selection — used for live drags. */
+  setProject: (project: Project) => void;
+  setPolicy: (patch: Partial<EditPolicy>) => void;
+  applyPlanEdits: (edits: PlanEdit[]) => void;
+  /** Files edits for review. Returns the new proposal id. */
+  proposeEdits: (edits: PlanEdit[], note?: string) => string | null;
+  acceptProposal: (id: string) => void;
+  rejectProposal: (id: string) => void;
+  previewProposal: (id: string | null) => void;
+  setPreviewIn3d: (on: boolean) => void;
+  setAuthor: (name: string) => void;
+  notify: (text: string, tone?: Notice['tone']) => void;
+  focusOn: (kind: FocusRequest['kind'], id: string) => void;
   select: (kind: SelectionKind, id: string | null) => void;
   setSurfaceTarget: (s: SurfaceTarget) => void;
   applyMaterial: (materialId: string) => void;
@@ -106,8 +167,17 @@ export function materialsForSurface(catalog: Catalog, surface: Surface): Materia
   return catalog.materials.filter((m) => m.applicableSurfaces.includes(surface));
 }
 
+let noticeSeq = 0;
+
 export const useStore = create<StoreState>((set, get) => ({
-  project: cloneProject(),
+  screen: 'home',
+  openedAt: 0,
+  project: saved?.project ?? cloneProject(),
+  previewProposalId: null,
+  previewIn3d: false,
+  author: loadAuthor(),
+  notice: null,
+  focus: null,
   catalog: CATALOG,
   catalogSource: 'bundled',
 
@@ -133,6 +203,9 @@ export const useStore = create<StoreState>((set, get) => ({
     // undercuts the render. It stays one toggle away for plan work.
     showGrid: false,
     showCeilings: false,
+    // Mid-afternoon: low enough for long shadows through the west glazing,
+    // high enough that the interior is still in daylight.
+    sunHour: 15.5,
   },
   lastApplied: null,
 
@@ -150,8 +223,95 @@ export const useStore = create<StoreState>((set, get) => ({
 
   setSurfaceTarget: (surfaceTarget) => set({ surfaceTarget }),
 
+  goHome: () => set({ screen: 'home', previewProposalId: null, previewIn3d: false }),
+
+  openProject: (project) =>
+    set((state) => {
+      const firstRoom = project.floors[0]?.rooms[0];
+      return {
+        project,
+        screen: 'studio',
+        openedAt: state.openedAt + 1,
+        previewProposalId: null,
+        previewIn3d: false,
+        selection: firstRoom ? { kind: 'room', id: firstRoom.id } : { kind: null, id: null },
+        cameraMode: 'orbit',
+        surfaceTarget: 'FLOOR',
+        lastApplied: null,
+      };
+    }),
+
+  setProject: (project) => set({ project }),
+
+  setPolicy: (patch) =>
+    set((state) => ({
+      project: { ...state.project, policy: { ...effectivePolicy(state.project), ...patch } },
+    })),
+
+  applyPlanEdits: (edits) => set((state) => ({ project: applyEdits(state.project, edits) })),
+
+  proposeEdits: (edits, note) => {
+    const state = get();
+    const proposal = createProposal(
+      state.project,
+      edits,
+      state.author.trim() || 'Anonymous',
+      state.catalog,
+      note?.trim() || undefined,
+    );
+    set({
+      project: { ...state.project, proposals: [...(state.project.proposals ?? []), proposal] },
+      previewProposalId: proposal.id,
+    });
+    return proposal.id;
+  },
+
+  // The rules engine throws on a proposal that is no longer pending (decided
+  // in another tab, say); that is a notice, not a crash.
+  acceptProposal: (id) =>
+    set((state) => {
+      try {
+        return {
+          project: acceptProposalRule(state.project, id),
+          previewProposalId: state.previewProposalId === id ? null : state.previewProposalId,
+          previewIn3d: false,
+        };
+      } catch (error) {
+        return { notice: { text: (error as Error).message, tone: 'warn', at: ++noticeSeq } };
+      }
+    }),
+
+  rejectProposal: (id) =>
+    set((state) => {
+      try {
+        return {
+          project: rejectProposalRule(state.project, id),
+          previewProposalId: state.previewProposalId === id ? null : state.previewProposalId,
+          previewIn3d: false,
+        };
+      } catch (error) {
+        return { notice: { text: (error as Error).message, tone: 'warn', at: ++noticeSeq } };
+      }
+    }),
+
+  previewProposal: (previewProposalId) =>
+    set((state) => ({ previewProposalId, previewIn3d: previewProposalId ? state.previewIn3d : false })),
+  setPreviewIn3d: (previewIn3d) => set({ previewIn3d }),
+
+  setAuthor: (author) => {
+    saveAuthor(author);
+    set({ author });
+  },
+
+  notify: (text, tone = 'warn') => set({ notice: { text, tone, at: ++noticeSeq } }),
+  focusOn: (kind, id) => set({ focus: { kind, id, at: Date.now() } }),
+
   applyMaterial: (materialId) =>
     set((state) => {
+      const finishes = canEditFinishes(state.project);
+      if (!finishes.allowed) {
+        return { notice: { text: finishes.reason ?? 'Finishes are locked.', tone: 'warn', at: ++noticeSeq } };
+      }
       const { selection, surfaceTarget } = state;
       const project = structuredClone(state.project);
       const floor = project.floors[0];
@@ -238,7 +398,12 @@ export const useStore = create<StoreState>((set, get) => ({
       return { project };
     }),
 
-  resetProject: () => set({ project: cloneProject() }),
+  resetProject: () =>
+    set((state) => {
+      // Back to the plan this project was opened from, keeping its policy.
+      const fresh = cloneProject();
+      return { project: { ...fresh, policy: state.project.policy }, previewProposalId: null };
+    }),
   setCatalog: (catalog) => set({ catalog, catalogSource: 'api' }),
   setView: (view) => set({ view }),
   setCameraMode: (cameraMode) => set({ cameraMode }),
@@ -246,3 +411,8 @@ export const useStore = create<StoreState>((set, get) => ({
   setRendererReady: () => set({ rendererReady: true }),
   patchRender: (patch) => set({ render: { ...get().render, ...patch } }),
 }));
+
+// The working project survives a reload, so the home screen can offer it back.
+useStore.subscribe((state, prev) => {
+  if (state.project !== prev.project) saveProject(state.project);
+});

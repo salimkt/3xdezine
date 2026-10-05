@@ -1,10 +1,11 @@
 import * as THREE from 'three/webgpu';
-import { useEffect, useMemo } from 'react';
-import { useLoader, useThree } from '@react-three/fiber';
+import { useEffect, useMemo, useRef } from 'react';
+import { useFrame, useLoader, useThree } from '@react-three/fiber';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
-import { useStore } from '../store';
 import { planBounds } from '../lib/geometry';
 import { assetUrl } from '../lib/materials';
+import { sunAt } from '../lib/sun';
+import { useDisplayProject } from '../lib/checks';
 
 /**
  * Image-based lighting from an HDRI. Equirectangular environments are fine to
@@ -61,14 +62,37 @@ export function Hdri({
 }
 
 /**
- * Sun plus a cool sky fill. The shadow camera is fitted to the plan so the
- * limited depth range is spent where the building actually is, and the bias is
- * scaled to wall thickness — long thin geometry is where acne and peter-panning
- * come from.
+ * Sun plus a cool sky fill. The sun follows the solar path for the site at the
+ * chosen clock time, warming and dimming toward the horizon; the environment
+ * and exposure are nudged with it so golden hour reads as golden rather than
+ * merely dark. The shadow camera is fitted to the plan so the limited depth
+ * range is spent where the building actually is, and the bias is scaled to
+ * wall thickness — long thin geometry is where acne and peter-panning come from.
  */
-export function Sun({ intensity }: { intensity: number }) {
-  const project = useStore((s) => s.project);
+export function Sun({
+  intensity,
+  hour,
+  envIntensity,
+  exposure,
+}: {
+  intensity: number;
+  hour: number;
+  envIntensity: number;
+  exposure: number;
+}) {
+  const project = useDisplayProject();
   const floor = project.floors[0];
+  const scene = useThree((state) => state.scene);
+  const gl = useThree((state) => state.gl) as unknown as THREE.WebGPURenderer;
+  const light = useRef<THREE.DirectionalLight>(null);
+  const hemi = useRef<THREE.HemisphereLight>(null);
+  const target = useMemo(() => new THREE.Object3D(), []);
+  const props = useRef({ intensity, hour, envIntensity, exposure });
+  props.current = { intensity, hour, envIntensity, exposure };
+  /** The hour actually lit — eases toward the slider so a drag sweeps, not jumps. */
+  const shown = useRef(hour);
+  const skyCool = useMemo(() => new THREE.Color('#BFD4EA'), []);
+  const skyWarm = useMemo(() => new THREE.Color('#E8C9A8'), []);
 
   const { centre, radius, normalBias } = useMemo(() => {
     const bounds = planBounds(floor?.rooms ?? []);
@@ -81,10 +105,34 @@ export function Sun({ intensity }: { intensity: number }) {
     };
   }, [floor]);
 
+  useFrame((_, delta) => {
+    const l = light.current;
+    if (!l) return;
+    const p = props.current;
+    const gap = p.hour - shown.current;
+    shown.current =
+      Math.abs(gap) < 0.002 ? p.hour : shown.current + gap * (1 - Math.exp(-Math.min(delta, 0.1) / 0.22));
+    const sun = sunAt(shown.current);
+    const reach = 40;
+    l.position.set(centre.x + sun.dir.x * reach, sun.dir.y * reach, centre.z + sun.dir.z * reach);
+    target.position.set(centre.x, 0, centre.z);
+    target.updateMatrixWorld();
+    l.color.set(sun.color);
+    l.intensity = p.intensity * sun.strength;
+    hemi.current?.color.copy(skyCool).lerp(skyWarm, sun.warmth * 0.6);
+    // The probe is a clear midday sky; dim it a little at golden hour and more
+    // once the sun is down, so dusk does not read as an overcast noon.
+    scene.environmentIntensity = p.envIntensity * (1 - 0.24 * sun.warmth) * (1 - 0.4 * sun.twilight);
+    if (scene.background instanceof THREE.Texture) scene.backgroundIntensity = 0.32 * (1 - 0.45 * sun.twilight);
+    gl.toneMappingExposure = p.exposure * (1 + 0.16 * sun.warmth);
+  });
+
   return (
     <group>
+      <primitive object={target} />
       <directionalLight
-        position={[centre.x + 14, 20, centre.z - 12]}
+        ref={light}
+        target={target}
         intensity={intensity}
         color="#FFF3E0"
         castShadow
@@ -92,13 +140,13 @@ export function Sun({ intensity }: { intensity: number }) {
         shadow-bias={-0.0004}
         shadow-normalBias={normalBias}
         shadow-camera-near={0.5}
-        shadow-camera-far={80}
+        shadow-camera-far={90}
         shadow-camera-left={-radius}
         shadow-camera-right={radius}
         shadow-camera-top={radius}
         shadow-camera-bottom={-radius}
       />
-      <hemisphereLight args={['#BFD4EA', '#3A322B', 0.35]} />
+      <hemisphereLight ref={hemi} args={['#BFD4EA', '#3A322B', 0.35]} />
     </group>
   );
 }

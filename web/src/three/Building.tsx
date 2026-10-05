@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
-import { useEffect, useMemo } from 'react';
-import type { ThreeEvent } from '@react-three/fiber';
+import { useEffect, useMemo, useRef } from 'react';
+import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import type { Catalog, Floor, Material, Opening, Room, Wall } from '@shared/types';
 import {
   buildCeilingGeometry,
@@ -18,7 +18,15 @@ import {
   type TextureManifest,
 } from '../lib/materials';
 import { useStore } from '../store';
+import { useDisplayProject } from '../lib/checks';
+import { introProgress, phase } from '../lib/intro';
 import { OpeningFill, PlacedGeometry } from './Parametric';
+
+type GroupRegistry = Map<string, THREE.Group>;
+const register = (registry: GroupRegistry, id: string) => (group: THREE.Group | null) => {
+  if (group) registry.set(id, group);
+  else registry.delete(id);
+};
 
 function byId(catalog: Catalog): Map<string, Material> {
   return new Map(catalog.materials.map((m) => [m.id, m]));
@@ -50,6 +58,7 @@ function WallMesh({
   materials,
   manifest,
   selected,
+  registry,
 }: {
   wall: Wall;
   openings: Opening[];
@@ -57,6 +66,7 @@ function WallMesh({
   materials: Map<string, Material>;
   manifest: TextureManifest;
   selected: boolean;
+  registry: GroupRegistry;
 }) {
   const select = useStore((s) => s.select);
 
@@ -87,7 +97,11 @@ function WallMesh({
   };
 
   return (
-    <group position={[wall.start.x, 0, wall.start.z]} rotation={[0, wallAngle(wall), 0]}>
+    <group
+      ref={register(registry, wall.id)}
+      position={[wall.start.x, 0, wall.start.z]}
+      rotation={[0, wallAngle(wall), 0]}
+    >
       <mesh
         geometry={geometry}
         material={meshMaterials}
@@ -110,12 +124,14 @@ function RoomMeshes({
   manifest,
   selected,
   showCeiling,
+  registry,
 }: {
   room: Room;
   materials: Map<string, Material>;
   manifest: TextureManifest;
   selected: boolean;
   showCeiling: boolean;
+  registry: GroupRegistry;
 }) {
   const select = useStore((s) => s.select);
   const setSurfaceTarget = useStore((s) => s.setSurfaceTarget);
@@ -140,7 +156,7 @@ function RoomMeshes({
   );
 
   return (
-    <group>
+    <group ref={register(registry, room.id)}>
       <mesh
         geometry={floorGeometry}
         material={floorMaterial}
@@ -172,8 +188,45 @@ function RoomMeshes({
 // Whole floor
 // ---------------------------------------------------------------------------
 
+/**
+ * Drives the build-up intro: slabs rise through the ground plane, walls grow
+ * from the slab in a ripple outward from the plan centre, fittings follow.
+ * Scales only — no material changes, so nothing recompiles mid-animation and
+ * every object still writes correct velocity for TRAA.
+ */
+function useBuildUp(floor: Floor | undefined, walls: GroupRegistry, rooms: GroupRegistry, fixtures: React.RefObject<THREE.Group | null>) {
+  const settled = useRef(true);
+  const delays = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!floor) return map;
+    const xs = floor.rooms.flatMap((r) => r.polygon.map((p) => p.x));
+    const zs = floor.rooms.flatMap((r) => r.polygon.map((p) => p.z));
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+    const dist = floor.walls.map((w) => Math.hypot((w.start.x + w.end.x) / 2 - cx, (w.start.z + w.end.z) / 2 - cz));
+    const max = Math.max(1e-3, ...dist);
+    floor.walls.forEach((w, i) => map.set(w.id, 0.1 + (dist[i] / max) * 0.32));
+    return map;
+  }, [floor]);
+
+  useFrame(() => {
+    const raw = introProgress(performance.now());
+    if (raw >= 1 && settled.current) return;
+    settled.current = raw >= 1;
+    for (const group of rooms.values()) {
+      const s = phase(raw, 0, 0.32);
+      group.position.y = -0.14 * (1 - s);
+    }
+    for (const [id, group] of walls) {
+      const d = delays.get(id) ?? 0.2;
+      group.scale.y = Math.max(0.001, phase(raw, d, d + 0.42));
+    }
+    if (fixtures.current) fixtures.current.scale.y = Math.max(0.001, phase(raw, 0.55, 1));
+  });
+}
+
 export function Building({ manifest }: { manifest: TextureManifest }) {
-  const project = useStore((s) => s.project);
+  const project = useDisplayProject();
   const catalog = useStore((s) => s.catalog);
   const selection = useStore((s) => s.selection);
   const showCeilings = useStore((s) => s.render.showCeilings);
@@ -212,6 +265,11 @@ export function Building({ manifest }: { manifest: TextureManifest }) {
     pruneMaterialCache(live);
   }, [floor, project.roof?.materialId]);
 
+  const wallGroups = useRef<GroupRegistry>(new Map()).current;
+  const roomGroups = useRef<GroupRegistry>(new Map()).current;
+  const fixtures = useRef<THREE.Group>(null);
+  useBuildUp(floor, wallGroups, roomGroups, fixtures);
+
   if (!floor) return null;
 
   const ceilingHeight = floor.rooms[0]?.ceilingHeightM ?? 2.7;
@@ -226,6 +284,7 @@ export function Building({ manifest }: { manifest: TextureManifest }) {
           manifest={manifest}
           showCeiling={showCeilings}
           selected={selection.kind === 'room' && selection.id === room.id}
+          registry={roomGroups}
         />
       ))}
 
@@ -238,9 +297,11 @@ export function Building({ manifest }: { manifest: TextureManifest }) {
           materials={materials}
           manifest={manifest}
           selected={selection.kind === 'wall' && selection.id === wall.id}
+          registry={wallGroups}
         />
       ))}
 
+      <group ref={fixtures}>
       {floor.openings.map((opening) => {
         const wall = floor.walls.find((w) => w.id === opening.wallId);
         if (!wall || !opening.componentId) return null;
@@ -275,6 +336,7 @@ export function Building({ manifest }: { manifest: TextureManifest }) {
           </group>
         );
       })}
+      </group>
     </group>
   );
 }
