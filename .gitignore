@@ -44,3 +44,9 @@ android/captures/
 # misc
 coverage/
 .tmp/
+
+# supabase (local CLI state and secrets; supabase/functions/_shared/domain IS committed)
+supabase/.branches/
+supabase/.temp/
+supabase/.env
+supabase/functions/.env

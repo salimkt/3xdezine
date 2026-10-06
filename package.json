@@ -15,9 +15,21 @@
     "db:down": "docker compose down",
     "db:reset": "docker compose down -v && docker compose up -d",
     "assets": "node scripts/fetch-assets.mjs --res 1K",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "sb": "supabase",
+    "sb:start": "supabase start -x realtime,storage-api,imgproxy,studio,logflare,vector,supavisor,postgres-meta",
+    "sb:stop": "supabase stop",
+    "sb:status": "supabase status",
+    "sb:reset": "supabase db reset",
+    "sb:sync": "node supabase/scripts/sync-shared.mjs",
+    "sb:check": "node supabase/scripts/sync-shared.mjs --check",
+    "sb:test": "npm run sb:check && supabase test db",
+    "sb:e2e": "npm run sb:check && tsx supabase/tests/e2e.ts",
+    "sb:functions": "npm run sb:sync && supabase functions serve",
+    "sb:deploy": "npm run sb:check && supabase db push && supabase functions deploy"
   },
   "devDependencies": {
+    "supabase": "2.119.0",
     "tsx": "^4.20.6",
     "typescript": "5.9.3"
   }
