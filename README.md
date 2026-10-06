@@ -4,7 +4,11 @@ A house and interior design platform. Draw a floor plan in 2D, walk it in photor
 3D, apply real building materials, and get a live, buffered material cost plus material
 suggestions tuned either for looks or for value.
 
-**[Live demo →](https://salimkt.github.io/3xdezine/)**
+**[Live demo →](https://salimkt.github.io/3xdezine/)** · **[Android APK](https://github.com/salimkt/3xdezine/releases/download/android-latest/3xdezine.apk)**
+
+![3xDezine studio: plan editor, WebGPU 3D view and live rupee estimate](docs/screenshots/studio.jpg)
+
+![Template gallery: eight Indian plans with live thumbnails and estimates](docs/screenshots/templates.jpg)
 
 The demo is the web client running standalone. GitHub Pages serves static files only, so
 the API is not available there: the catalog, the 3D renderer and live costing all work
@@ -91,18 +95,19 @@ before anyone spends money against it.
 
 A working vertical slice, not a finished product. Known gaps:
 
-- The roof is costed and selectable but not modelled in 3D — a gable would hide the
+- **Accounts and sharing are built but not live.** The Supabase backend (`supabase/`)
+  and the web sign-in are complete and pass 43 database security tests and a 41-step
+  end-to-end run locally, but the public demo has no hosted Supabase project yet, so it
+  runs signed-out and fully local. `docs/cloud.md` is the go-live checklist.
+- The roof is costed and selectable but not modelled in 3D — it would hide the
   interior, which is the part worth looking at.
 - Single storey. `Floor.level` exists; stairs and multi-floor editing do not.
 - `RectAreaLight` window lighting is not wired up (its WebGPU registration needs LTC
-  texture setup), so windows light the room via the HDRI and sun rather than as emissive
-  panels.
-- 22 of 24 materials have PBR texture sets; the remainder render as flat colour with
-  correct roughness and metalness.
-- The Android client is written and cross-checked but **has never been compiled** — it
-  was built on a machine with no JDK or Android SDK. Treat it as a strong starting point,
-  not a shipping app. `android/README.md` lists exactly what is unverified.
-- No authentication, no multi-user, no labour costing.
+  texture setup), so windows light the room via the HDRI and sun.
+- The Android app builds, passes its unit tests in CI and is signed with a stable
+  release key, but **has not yet been run on a physical device**. `android/README.md`
+  lists exactly what is unverified at runtime.
+- No labour costing; plan checks are advisory and local bye-laws may be stricter.
 
 ## Licence and attribution
 
