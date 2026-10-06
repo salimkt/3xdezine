@@ -10,6 +10,7 @@ const violationKey = (v: RuleViolation) =>
   `${v.ruleId}|${v.roomId ?? ''}|${v.wallId ?? ''}|${v.openingId ?? ''}`;
 import { SeverityIcon } from './PlanCheckPanel';
 import { IconChevron } from './icons';
+import { useCloud } from '../cloud/state';
 
 export function signedMoney(delta: number | undefined, currency: string) {
   if (delta === undefined || Math.abs(delta) < 0.5) return { text: `±${money(0, currency)}`, tone: 'flat' };
@@ -54,6 +55,8 @@ function ProposalCard({ proposal, selected }: { proposal: EditProposal; selected
   const accept = useStore((s) => s.acceptProposal);
   const reject = useStore((s) => s.rejectProposal);
   const project = useStore((s) => s.project);
+  // On a cloud project the server only lets the owner or a Full member decide.
+  const canReview = useCloud((s) => !s.active || s.active.role === 'OWNER' || s.active.role === 'FULL');
   const cost = signedMoney(proposal.costDelta, currency);
   const pending = proposal.status === 'PENDING';
   // A reviewer cares what the proposal *adds*; what the plan already had is
@@ -132,16 +135,22 @@ function ProposalCard({ proposal, selected }: { proposal: EditProposal; selected
                 Preview in 3D
               </button>
               <span className="topbar-spacer" />
-              <button className="btn btn-small" onClick={() => reject(proposal.id)}>
-                Reject
-              </button>
-              <button
-                className="btn btn-small btn-primary"
-                onClick={() => accept(proposal.id)}
-                title={counts.ERROR ? 'Accepting will leave rule errors in the plan' : 'Apply this change to the plan'}
-              >
-                Accept
-              </button>
+              {canReview ? (
+                <>
+                  <button className="btn btn-small" onClick={() => reject(proposal.id)}>
+                    Reject
+                  </button>
+                  <button
+                    className="btn btn-small btn-primary"
+                    onClick={() => accept(proposal.id)}
+                    title={counts.ERROR ? 'Accepting will leave rule errors in the plan' : 'Apply this change to the plan'}
+                  >
+                    Accept
+                  </button>
+                </>
+              ) : (
+                <span className="proposal-carried">Waiting for the owner’s review</span>
+              )}
             </div>
           )}
         </div>

@@ -19,11 +19,12 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
 
     "baseUrl": ".",
     "paths": {
       "@shared/*": ["../shared/*"]
     }
   },
-  "include": ["src", "../shared/types.ts", "../shared/cost.ts"]
+  "include": ["src", "../shared/types.ts", "../shared/cost.ts", "../shared/cloud.ts"]
 }

@@ -3,6 +3,10 @@ import { useStore } from '../store';
 import { getCatalog } from '../lib/api';
 import { MobileGate } from './AndroidApp';
 import { HomeScreen } from './HomeScreen';
+import { CLOUD_ENABLED } from '../cloud/state';
+
+/** Sign-in, sharing and sync UI; never requested when cloud isn't configured. */
+const CloudRoot = lazy(() => import('../cloud/ui/shell').then((m) => ({ default: m.CloudRoot })));
 
 /**
  * The shell: home screen, mobile landing and catalogue fetch. The studio (plan
@@ -76,6 +80,11 @@ export function App() {
         </Suspense>
       )}
       {screen === 'home' && <HomeScreen />}
+      {CLOUD_ENABLED && (
+        <Suspense fallback={null}>
+          <CloudRoot />
+        </Suspense>
+      )}
     </>
   );
 }

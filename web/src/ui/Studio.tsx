@@ -1,4 +1,5 @@
 import { Component, lazy, type ReactNode, Suspense, useLayoutEffect, useRef, useState } from 'react';
+import { CLOUD_ENABLED } from '../cloud/state';
 import { useStore, type ViewMode } from '../store';
 import { DUR, prefersReducedMotion } from '../lib/motion';
 import { PlanEditor } from './PlanEditor';
@@ -17,6 +18,8 @@ import { IconAlert } from './icons';
  * none of it is needed to draw the plan — so the viewport is its own chunk. The
  * shell prefetches it while the home screen is up, so in practice it is warm.
  */
+const CloudRail = lazy(() => import('../cloud/ui/StudioCloud').then((m) => ({ default: m.CloudRail })));
+
 const Viewport = lazy(() => import('../three/Viewport').then((m) => ({ default: m.Viewport })));
 
 function ViewportLoading() {
@@ -178,6 +181,11 @@ export default function Studio({ hidden }: { hidden: boolean }) {
         <aside ref={refs.rail} className="rail">
           <Inspector />
           <ProposalsPanel />
+          {CLOUD_ENABLED && (
+            <Suspense fallback={null}>
+              <CloudRail />
+            </Suspense>
+          )}
           <PlanCheckPanel />
           <MaterialPalette />
           <CostPanel />

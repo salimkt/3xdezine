@@ -10,6 +10,7 @@ import { IconLock } from './icons';
 import { area as fmtArea, metres } from '../lib/format';
 import { DUR, TweenSlot, easeOutCubic, lerp, prefersReducedMotion } from '../lib/motion';
 import { ZoomCluster } from './ZoomCluster';
+import { useCloud } from '../cloud/state';
 
 const SNAP_M = 0.1;
 const PADDING_M = 2.2;
@@ -195,6 +196,9 @@ export function PlanEditor() {
   const setAuthor = useStore((s) => s.setAuthor);
   const focus = useStore((s) => s.focus);
   const preview = usePreviewProposal();
+  const versionPreview = useStore((s) => s.versionPreview);
+  // On a cloud project the server signs proposals with the account's name.
+  const cloudOpen = useCloud((s) => s.active !== null);
   const policy = effectivePolicy(project);
 
   const floor = project.floors[0];
@@ -935,10 +939,18 @@ export function PlanEditor() {
     active && reviewing && active.check.allowed
       ? changedRooms(active.base, applyEdits(active.base, active.edits))
       : [];
+  // A pending proposal, or a version from the history panel, ghosted over the plan.
+  const overlay = active
+    ? null
+    : preview && preview.status === 'PENDING'
+      ? { next: proposedProject(project, preview), moves: preview.edits.flatMap((e) => (e.kind === 'MOVE_CORNER' ? [e] : [])) }
+      : versionPreview
+        ? { next: versionPreview.project, moves: [] }
+        : null;
   const diff =
-    preview && preview.status === 'PENDING' && !active
+    overlay
       ? (() => {
-          const next = proposedProject(project, preview);
+          const next = overlay.next;
           const rooms = changedRooms(project, next);
           const walls =
             next.floors[0]?.walls.filter((w) => {
@@ -949,8 +961,7 @@ export function PlanEditor() {
                 Math.hypot(was.end.x - w.end.x, was.end.z - w.end.z) > 1e-4
               );
             }) ?? [];
-          const moves = preview.edits.flatMap((e) => (e.kind === 'MOVE_CORNER' ? [e] : []));
-          return { rooms, walls, moves };
+          return { rooms, walls, moves: overlay.moves };
         })()
       : null;
 
@@ -1461,7 +1472,7 @@ export function PlanEditor() {
             )}
             {release.review && (release.check.allowed || release.check.suggestions.length > 0) && (
               <div className="plan-release-fields">
-                {!author.trim() && (
+                {!author.trim() && !cloudOpen && (
                   <input
                     className="input"
                     placeholder="Your name (asked once)"
@@ -1511,10 +1522,17 @@ export function PlanEditor() {
           </div>
         )}
 
-        {diff && preview && (
+        {diff && preview && preview.status === 'PENDING' && (
           <div className="plan-diff-banner">
             <span className="plan-diff-swatch" />
             Proposal by <b>{preview.author}</b> — dashed is proposed
+          </div>
+        )}
+        {diff && versionPreview && !(preview && preview.status === 'PENDING') && (
+          <div className="plan-diff-banner">
+            <span className="plan-diff-swatch" />
+            Version <b>v{versionPreview.version.version}</b> by <b>{versionPreview.version.authorName}</b> — dashed is
+            that version
           </div>
         )}
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
 import { EMPTY_MANIFEST, loadTextureManifest, type HdriEntry } from '../lib/assets';
 import { useCost } from './CostPanel';
@@ -8,6 +8,9 @@ import { PolicyMenu } from './PolicyMenu';
 import { IconChevron, IconHome } from './icons';
 import { BLANK_META, loadTemplate, loadTemplateIndex } from '../lib/templates';
 import { useAnimatedNumber } from '../lib/motion';
+import { CLOUD_ENABLED, useCloud } from '../cloud/state';
+
+const TopBarCloud = lazy(() => import('../cloud/ui/StudioCloud').then((m) => ({ default: m.TopBarCloud })));
 
 export function TopBar() {
   const project = useStore((s) => s.project);
@@ -23,6 +26,9 @@ export function TopBar() {
   const goHome = useStore((s) => s.goHome);
   const catalogSource = useStore((s) => s.catalogSource);
   const cost = useCost();
+  const cloudRole = useCloud((s) => s.active?.role);
+  // Reset rewrites the whole plan; on a shared project only someone who may do that sees it.
+  const canReset = !cloudRole || cloudRole === 'OWNER' || cloudRole === 'FULL';
   const total = useAnimatedNumber(cost.total);
 
   const [hdris, setHdris] = useState<HdriEntry[]>(EMPTY_MANIFEST.hdris);
@@ -143,6 +149,11 @@ export function TopBar() {
 
       <span className="topbar-divider" />
 
+      {CLOUD_ENABLED && (
+        <Suspense fallback={null}>
+          <TopBarCloud />
+        </Suspense>
+      )}
       <PolicyMenu />
       <AndroidMenu />
 
@@ -257,9 +268,11 @@ export function TopBar() {
         )}
       </div>
 
-      <button className="btn btn-ghost" onClick={reset} title="Discard edits and reload the plan this project started from">
-        Reset
-      </button>
+      {canReset && (
+        <button className="btn btn-ghost" onClick={reset} title="Discard edits and reload the plan this project started from">
+          Reset
+        </button>
+      )}
     </header>
   );
 }

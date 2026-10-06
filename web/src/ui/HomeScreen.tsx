@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { Catalog, PlanTemplateMeta, Project } from '@shared/types';
 import { estimateCost } from '@shared/cost';
 import { useStore } from '../store';
@@ -8,6 +8,12 @@ import { polygonArea } from '../lib/planMath';
 import { money } from '../lib/format';
 import { PlanThumb } from './PlanThumb';
 import { IconChevron } from './icons';
+import { CLOUD_ENABLED, useCloud } from '../cloud/state';
+
+// The cloud strip shares a chunk with the shell's cloud root; neither exists
+// for a build without VITE_SUPABASE_URL.
+const HomeAccount = lazy(() => import('../cloud/ui/shell').then((m) => ({ default: m.HomeAccount })));
+const HomeProjects = lazy(() => import('../cloud/ui/shell').then((m) => ({ default: m.HomeProjects })));
 
 type Category = 'ALL' | PlanTemplateMeta['category'];
 
@@ -186,6 +192,7 @@ export function HomeScreen() {
   const openProject = useStore((s) => s.openProject);
   const working = useStore((s) => s.project);
   const openedAt = useStore((s) => s.openedAt);
+  const cloudOpen = useCloud((s) => s.active !== null);
   const [saved] = useState(loadSavedProject);
   const [index, setIndex] = useState<PlanTemplateMeta[] | null>(null);
   const [category, setCategory] = useState<Category>('ALL');
@@ -212,20 +219,30 @@ export function HomeScreen() {
     [index, category, bhk],
   );
 
-  // Something worth continuing: a plan restored from storage, or one opened this session.
-  const canContinue = Boolean(saved) || openedAt > 0;
+  // Something worth continuing: a plan restored from storage, or one opened this
+  // session. A cloud project lives in "Your projects", so Continue then means
+  // the local plan this browser remembers.
+  const local = cloudOpen ? (saved?.project ?? null) : working;
+  const canContinue = cloudOpen ? Boolean(saved) : Boolean(saved) || openedAt > 0;
   const showBlank = (category === 'ALL' || category === 'STUDIO') && bhk === null;
 
   return (
     <div className="home" role="main">
       <div className="home-inner">
         <header className="home-head">
-          <div className="brand">
-            <span className="brand-mark">3×</span>
-            <span className="brand-text">
-              Dezine
-              <small>Studio</small>
-            </span>
+          <div className="home-brandrow">
+            <div className="brand">
+              <span className="brand-mark">3×</span>
+              <span className="brand-text">
+                Dezine
+                <small>Studio</small>
+              </span>
+            </div>
+            {CLOUD_ENABLED && (
+              <Suspense fallback={null}>
+                <HomeAccount />
+              </Suspense>
+            )}
           </div>
           <div className="home-title">
             <h1>Start from a plan</h1>
@@ -235,6 +252,12 @@ export function HomeScreen() {
             </p>
           </div>
         </header>
+
+        {CLOUD_ENABLED && (
+          <Suspense fallback={null}>
+            <HomeProjects />
+          </Suspense>
+        )}
 
         <div className="home-filters" role="toolbar" aria-label="Filter templates">
           <div className="segmented">
@@ -266,8 +289,8 @@ export function HomeScreen() {
         </div>
 
         <div className="home-grid">
-          {canContinue && (
-            <ContinueTile project={working} savedAt={saved?.savedAt} onOpen={() => openProject(working)} />
+          {canContinue && local && (
+            <ContinueTile project={local} savedAt={saved?.savedAt} onOpen={() => openProject(local)} />
           )}
           {shown.map((meta, i) => (
             <Tile key={meta.id} meta={meta} index={i + (canContinue ? 1 : 0)} onOpen={openProject} />

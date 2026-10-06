@@ -20,6 +20,7 @@ import {
   rejectProposal as rejectProposalRule,
 } from '@shared/rules';
 import { loadAuthor, loadSavedProject, saveAuthor, saveProject } from './lib/persist';
+import { atLeast, cloudHooks, useCloud, type ActiveCloud, type VersionPreview } from './cloud/state';
 
 export const CATALOG: Catalog = catalogSeed as unknown as Catalog;
 
@@ -85,6 +86,8 @@ interface StoreState {
   /** The proposal whose diff the plan (and optionally the 3D view) is showing. */
   previewProposalId: string | null;
   previewIn3d: boolean;
+  /** A cloud version drawn over the plan, read-only, from the history panel. */
+  versionPreview: VersionPreview | null;
   author: string;
   notice: Notice | null;
   focus: FocusRequest | null;
@@ -108,7 +111,8 @@ interface StoreState {
 
   // actions
   goHome: () => void;
-  openProject: (project: Project) => void;
+  /** Opens a project; `cloud` marks it as a cloud project (absent = local working plan). */
+  openProject: (project: Project, cloud?: ActiveCloud | null) => void;
   /** Replaces the whole project, keeping the selection — used for live drags. */
   setProject: (project: Project) => void;
   setPolicy: (patch: Partial<EditPolicy>) => void;
@@ -119,6 +123,7 @@ interface StoreState {
   rejectProposal: (id: string) => void;
   previewProposal: (id: string | null) => void;
   setPreviewIn3d: (on: boolean) => void;
+  setVersionPreview: (preview: VersionPreview | null) => void;
   setAuthor: (name: string) => void;
   notify: (text: string, tone?: Notice['tone']) => void;
   focusOn: (kind: FocusRequest['kind'], id: string) => void;
@@ -175,6 +180,7 @@ export const useStore = create<StoreState>((set, get) => ({
   project: saved?.project ?? cloneProject(),
   previewProposalId: null,
   previewIn3d: false,
+  versionPreview: null,
   author: loadAuthor(),
   notice: null,
   focus: null,
@@ -223,10 +229,13 @@ export const useStore = create<StoreState>((set, get) => ({
 
   setSurfaceTarget: (surfaceTarget) => set({ surfaceTarget }),
 
-  goHome: () => set({ screen: 'home', previewProposalId: null, previewIn3d: false }),
+  goHome: () => set({ screen: 'home', previewProposalId: null, previewIn3d: false, versionPreview: null }),
 
-  openProject: (project) =>
+  openProject: (project, cloud = null) =>
     set((state) => {
+      // Before the project lands, so the local-persistence subscriber below
+      // already knows whether this plan belongs in localStorage.
+      useCloud.setState({ active: cloud, members: null, save: { state: 'idle', at: Date.now() } });
       const firstRoom = project.floors[0]?.rooms[0];
       return {
         project,
@@ -234,6 +243,7 @@ export const useStore = create<StoreState>((set, get) => ({
         openedAt: state.openedAt + 1,
         previewProposalId: null,
         previewIn3d: false,
+        versionPreview: null,
         selection: firstRoom ? { kind: 'room', id: firstRoom.id } : { kind: null, id: null },
         cameraMode: 'orbit',
         surfaceTarget: 'FLOOR',
@@ -244,14 +254,25 @@ export const useStore = create<StoreState>((set, get) => ({
   setProject: (project) => set({ project }),
 
   setPolicy: (patch) =>
-    set((state) => ({
-      project: { ...state.project, policy: { ...effectivePolicy(state.project), ...patch } },
-    })),
+    set((state) => {
+      const cloud = useCloud.getState().active;
+      if (cloud && cloud.role !== 'OWNER') {
+        return { notice: { text: 'Only the project owner can change edit permissions.', tone: 'warn', at: ++noticeSeq } };
+      }
+      return {
+        project: { ...state.project, policy: { ...effectivePolicy(state.project), ...patch } },
+      };
+    }),
 
   applyPlanEdits: (edits) => set((state) => ({ project: applyEdits(state.project, edits) })),
 
   proposeEdits: (edits, note) => {
     const state = get();
+    // A cloud proposal is filed by the server, which signs it with the real account.
+    if (useCloud.getState().active && cloudHooks.propose) {
+      cloudHooks.propose(edits, note?.trim() || undefined);
+      return null;
+    }
     const proposal = createProposal(
       state.project,
       edits,
@@ -270,6 +291,11 @@ export const useStore = create<StoreState>((set, get) => ({
   // in another tab, say); that is a notice, not a crash.
   acceptProposal: (id) =>
     set((state) => {
+      const proposal = state.project.proposals?.find((p) => p.id === id);
+      if (useCloud.getState().active && cloudHooks.review && proposal) {
+        cloudHooks.review(proposal, 'ACCEPT');
+        return {};
+      }
       try {
         return {
           project: acceptProposalRule(state.project, id),
@@ -283,6 +309,11 @@ export const useStore = create<StoreState>((set, get) => ({
 
   rejectProposal: (id) =>
     set((state) => {
+      const proposal = state.project.proposals?.find((p) => p.id === id);
+      if (useCloud.getState().active && cloudHooks.review && proposal) {
+        cloudHooks.review(proposal, 'REJECT');
+        return {};
+      }
       try {
         return {
           project: rejectProposalRule(state.project, id),
@@ -297,10 +328,12 @@ export const useStore = create<StoreState>((set, get) => ({
   previewProposal: (previewProposalId) =>
     set((state) => ({ previewProposalId, previewIn3d: previewProposalId ? state.previewIn3d : false })),
   setPreviewIn3d: (previewIn3d) => set({ previewIn3d }),
+  setVersionPreview: (versionPreview) => set({ versionPreview }),
 
   setAuthor: (author) => {
     saveAuthor(author);
     set({ author });
+    cloudHooks.author?.(author);
   },
 
   notify: (text, tone = 'warn') => set({ notice: { text, tone, at: ++noticeSeq } }),
@@ -376,9 +409,14 @@ export const useStore = create<StoreState>((set, get) => ({
     }),
 
   setContingency: (value) =>
-    set((state) => ({
-      project: { ...state.project, contingencyBuffer: Math.max(0, Math.min(0.5, value)) },
-    })),
+    set((state) => {
+      const cloud = useCloud.getState().active;
+      // The server lets only Full access touch the buffer on a shared project.
+      if (cloud && cloud.role !== 'OWNER' && !atLeast(cloud.cap, 'FULL')) {
+        return { notice: { text: 'Only Full access can change the contingency buffer on this project.', tone: 'warn', at: ++noticeSeq } };
+      }
+      return { project: { ...state.project, contingencyBuffer: Math.max(0, Math.min(0.5, value)) } };
+    }),
 
   setWallHeight: (wallId, heightM) =>
     set((state) => {
@@ -413,6 +451,7 @@ export const useStore = create<StoreState>((set, get) => ({
 }));
 
 // The working project survives a reload, so the home screen can offer it back.
+// A cloud project is saved to the cloud instead and never overwrites it.
 useStore.subscribe((state, prev) => {
-  if (state.project !== prev.project) saveProject(state.project);
+  if (state.project !== prev.project && !useCloud.getState().active) saveProject(state.project);
 });

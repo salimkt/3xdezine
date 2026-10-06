@@ -2485,6 +2485,14 @@ input[type='range']:active::-webkit-slider-thumb {
   gap: 26px;
 }
 
+.home-brandrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+}
+
 .home-head .brand {
   border-right: 0;
 }

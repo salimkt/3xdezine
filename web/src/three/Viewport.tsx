@@ -87,19 +87,32 @@ const WALK_FOV_STEP = 1.2;
 const EYE_HEIGHT = 1.65;
 
 /**
- * The plan-fitted three-quarter view: eye-level-ish, from the plan's own
- * extents. The fixed start position in <Canvas> looks down on the roof and
- * leaves half the frame as empty sky. Used on first mount and by "Frame".
+ * The plan-fitted three-quarter view, from the plan's own extents. Used on
+ * first mount and by "Frame".
+ *
+ * The elevation is what makes the interior readable. Walls are full storey
+ * height (~2.9 m) and there is no roof, so from an elevation e every wall hides
+ * h / tan(e) of floor behind it: at the old ~18° that is ~8.7 m — more than any
+ * room is deep — so each room read as a pale "lid" of white interior wall faces
+ * converging on its centre, with the oak floor entirely occluded. At 50° a wall
+ * hides ~2.4 m, so most of every floor and the furniture on it are in view.
  */
+const FRAMED_ELEVATION = (50 * Math.PI) / 180;
+
 function framedPose(bounds: ReturnType<typeof planBounds>): OrbitPose {
   const span = Math.max(bounds.size.x, bounds.size.z, 6);
+  const target = new THREE.Vector3(bounds.centre.x, 0.6, bounds.centre.z);
+  // Same south-east three-quarter azimuth as before, so the sun still rakes the facade.
+  const azimuth = Math.atan2(1.34, 1.1);
+  const radius = span * 1.85;
+  const ground = radius * Math.cos(FRAMED_ELEVATION);
   return {
     position: new THREE.Vector3(
-      bounds.centre.x + span * 1.1,
-      span * 0.68,
-      bounds.centre.z + span * 1.34,
+      target.x + ground * Math.cos(azimuth),
+      target.y + radius * Math.sin(FRAMED_ELEVATION),
+      target.z + ground * Math.sin(azimuth),
     ),
-    target: new THREE.Vector3(bounds.centre.x, 1.2, bounds.centre.z),
+    target,
   };
 }
 
