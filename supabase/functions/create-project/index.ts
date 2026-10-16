@@ -1,8 +1,11 @@
 // create-project — CreateProjectRequest -> CreateProjectResponse (shared/cloud.ts).
 // The caller becomes the owner. Snapshots a CREATE version.
+// Plan limit: refuses with FORBIDDEN once the caller owns `maxActiveProjects`
+// (Free: 2). The project quotes as the caller's studio, if they have one.
 import type { CreateProjectResponse } from '../_shared/domain/cloud.ts';
 import { admin, requireCaller } from '../_shared/auth.ts';
-import { serve, str } from '../_shared/http.ts';
+import { forbidden, serve, str } from '../_shared/http.ts';
+import { entitlementsOf, ownedStudio, planName } from '../_shared/business.ts';
 import { parseProject, summarize, toSummary, type ProjectRow } from '../_shared/project.ts';
 
 serve(async (req, body) => {
@@ -12,8 +15,21 @@ serve(async (req, body) => {
   const templateId = str(body, 'templateId', { optional: true, max: 100 }) || data.templateId || null;
   data.name = name;
 
-  const summary = summarize(data);
   const db = admin();
+  const ent = await entitlementsOf(caller.id);
+  if (ent.maxActiveProjects !== null) {
+    const { count, error: cErr } = await db.from('projects').select('id', { count: 'exact', head: true }).eq('owner_id', caller.id);
+    if (cErr) throw cErr;
+    if ((count ?? 0) >= ent.maxActiveProjects) {
+      throw forbidden(
+        `The ${planName(ent.plan)} plan includes ${ent.maxActiveProjects} active projects and you have ${count}. ` +
+          'Upgrade to Solo for unlimited projects, or delete a project you no longer need.',
+      );
+    }
+  }
+  const studio = await ownedStudio(caller.id);
+
+  const summary = summarize(data);
   const { data: row, error } = await db
     .from('projects')
     .insert({
@@ -21,6 +37,7 @@ serve(async (req, body) => {
       name,
       data,
       template_id: templateId,
+      studio_id: studio?.id ?? null,
       version: 1,
       built_up_sqm: summary.builtUpSqm,
       rooms: summary.rooms,

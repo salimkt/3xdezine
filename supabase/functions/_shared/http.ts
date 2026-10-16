@@ -55,7 +55,7 @@ export const notFound = (message = 'That project doesn’t exist or isn’t shar
 export const conflict = (currentVersion: number) =>
   new Fail('CONFLICT', 'Someone saved this project since you opened it. Reload to get their changes.', { currentVersion });
 
-function json(req: Request, status: number, body: unknown): Response {
+export function json(req: Request, status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders(req), 'Content-Type': 'application/json; charset=utf-8' },
@@ -66,6 +66,17 @@ function json(req: Request, status: number, body: unknown): Response {
  * Wraps a handler: answers CORS preflight, requires POST + a JSON object body,
  * and maps thrown errors to CloudError responses.
  */
+/** Maps a thrown error to a CloudError response (logging anything unexpected). */
+export function errorResponse(req: Request, err: unknown): Response {
+  if (err instanceof Fail) {
+    const payload: CloudError = { ok: false, code: err.code, message: err.message, ...err.extra };
+    return json(req, STATUS[err.code], payload);
+  }
+  console.error(err);
+  const payload: CloudError = { ok: false, code: 'INTERNAL', message: 'Something went wrong on our side. Please try again.' };
+  return json(req, 500, payload);
+}
+
 export function serve(handler: (req: Request, body: Record<string, unknown>) => Promise<Record<string, unknown>>) {
   Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders(req) });
@@ -81,13 +92,7 @@ export function serve(handler: (req: Request, body: Record<string, unknown>) => 
       const result = await handler(req, body as Record<string, unknown>);
       return json(req, 200, { ok: true, ...result });
     } catch (err) {
-      if (err instanceof Fail) {
-        const payload: CloudError = { ok: false, code: err.code, message: err.message, ...err.extra };
-        return json(req, STATUS[err.code], payload);
-      }
-      console.error(err);
-      const payload: CloudError = { ok: false, code: 'INTERNAL', message: 'Something went wrong on our side. Please try again.' };
-      return json(req, 500, payload);
+      return errorResponse(req, err);
     }
   });
 }

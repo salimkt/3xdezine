@@ -1,17 +1,25 @@
 # 3xDezine cloud (Supabase)
 
-Accounts, cloud projects, sharing with roles, proposals and version history.
-The contract is `shared/cloud.ts`. The backend lives in `supabase/`.
+Accounts, cloud projects, sharing with roles, proposals and version history,
+and studios, rate cards, quotations, client approvals, plans and billing.
+The contracts are `shared/cloud.ts` and `shared/business.ts`. The backend lives
+in `supabase/`. Billing setup is described in `docs/billing.md`.
 
 ```
 supabase/
   config.toml                         local stack and auth settings (magic link, redirects, Google off)
-  migrations/20261006000000_cloud_schema.sql   tables, RLS, views, helper functions
-  functions/<name>/index.ts           one Edge Function per CLOUD_FUNCTIONS entry
-  functions/_shared/                  auth, HTTP/CORS/errors, project access, save enforcement
-  functions/_shared/domain/           GENERATED copies of shared/{types,cost,rules,cloud}.ts + catalog
+  migrations/20261006000000_cloud_schema.sql     tables, RLS, views, helper functions
+  migrations/20261016000000_business_schema.sql  studios, rate overrides, quotes, numbering, approvals, billing
+  functions/<name>/index.ts           one Edge Function per CLOUD_FUNCTIONS / BUSINESS_FUNCTIONS entry
+  functions/_shared/                  auth, HTTP/CORS/errors, project access, save enforcement,
+                                      business.ts (studios, rate cards, entitlements), quotes.ts, billing.ts (Razorpay)
+  functions/_shared/domain/           GENERATED copies of shared/ (types, cost, rules, cloud, business,
+                                      money, gst, trades, modular, quote, plans) + catalog + ratecards/
+  functions/.env.example              local function secrets (copy to functions/.env, gitignored)
   scripts/sync-shared.mjs             writes / checks those copies
-  tests/database/rls.test.sql         pgTAP: RLS and privileges
+  tests/database/rls.test.sql         pgTAP: RLS and privileges (cloud tables)
+  tests/database/business.test.sql    pgTAP: RLS, append-only evidence, immutable issued quotes, numbering
+  tests/database/numbering_concurrency.test.sql  pgTAP + dblink: numbering under two real concurrent transactions
   tests/e2e.ts                        end-to-end scenario against the running stack
 ```
 
@@ -79,16 +87,68 @@ supabase/
   403, 404, 409, 400 or 500. Projects you can't access return `NOT_FOUND`, so
   ids can't be probed.
 
+## Studios, quotations and approvals
+
+| Function | Who | What |
+|---|---|---|
+| `get-entitlements` | signed in | `{ entitlements }`, computed by `shared/plans.ts` from the caller's live subscriptions (or the Studio/Business plan of a studio they hold a seat in) and unexpired Project Passes |
+| `save-studio` | signed in; studio OWNER for an existing id | Creates the caller's personal studio on first save (with an OWNER seat, and attaches the caller's projects to it), or updates it. Validates the GSTIN (`validateGstin`: format, PAN and checksum), checks that its state code matches the address state, that the PAN matches, the logo (PNG/JPEG/SVG data URL, ≤ 64 KB decoded, no script in SVG), the IFSC/UPI format, that milestones sum to 100, and that the prefix is 1–4 alphanumerics so numbers fit Rule 46's 16 characters |
+| `save-rate-overrides` | studio OWNER, plan with `rateCards` | Validated against the base card: known ids, editable fields only, integer paise, HSN/SAC and GST rate |
+| `save-quote-draft` | project level ≥ FINISHES | The server rebuilds the **whole** document with `buildQuote` from the *stored* plan, the studio, the rate card and the stored overrides. Client totals, and any client `overrides`, are ignored. A `quoteId` that is a DRAFT is updated in place; an ISSUED or CHANGES_REQUESTED quote yields a new DRAFT revision (`version + 1`, `supersedes_id`); an APPROVED quote is refused (use a variation order) |
+| `issue-quote` | project level ≥ FINISHES | Doc type must be in the plan's `docTypes` ∩ `allowedDocTypes(registration)`. `watermark = !brandedQuotes`, with a Project Pass for that project counted. Rebuilds the document dated today (IST), snapshots the supplier (no logo or brand colour when unbranded) and the plan, assigns the next number, hashes it (`hashQuote`) and creates a share token, all in **one** transaction. Returns `shareUrlPath = #/q/<token>`. Issuing a revision marks the old quote SUPERSEDED |
+| `create-variation-order` | project level ≥ FINISHES, plan with `variationOrders` | Only against an APPROVED quote. Creates a VARIATION_ORDER draft (`amends_id`), with the `diffQuotes` summary; issue it with `issue-quote` |
+| `open-quote` | **public** | Token → that quote, the plan snapshot taken at issue (without proposals or policy) and the studio's name. Unknown or revoked → NOT_FOUND |
+| `respond-to-quote` | **public** | Refused (CONFLICT) if `documentHash` ≠ the stored hash or the quote is not ISSUED. Appends to `quote_responses` (name, contact, comment, hash, user agent, IP). APPROVED → status APPROVED + `locked_at`; CHANGES_REQUESTED → that status (a comment is required). Length caps; one decision per link per minute |
+| `create-checkout`, `razorpay-webhook` | signed in / **public, HMAC** | Billing, see `docs/billing.md` |
+
+- **Studios and seats.** `studios` holds the profile (`StudioProfile` minus
+  `id`) and has one owner. `studio_members` lists seats (OWNER/MEMBER).
+  Members read the studio, its rate overrides, its quotes and its number
+  series. Only the owner writes, through functions. `projects.studio_id` says
+  which studio a project quotes as; it falls back to the owner's studio. There
+  is no function to add seats yet.
+- **Numbering** (CGST Rule 46: consecutive, unique per financial year).
+  `quote_number_series(studio, doc type, FY).last_seq` is advanced only inside
+  `issue_quote_commit()`. That function locks the series row,
+  compare-and-sets the sequence the function formatted with
+  `nextQuoteNumber`, and writes the quote and share link in the same
+  transaction. A concurrent issue gets `SEQ:<n>` and retries, so numbers
+  never collide, gap or get reused. A unique index on `(studio, doc type,
+  number)` is the backstop. Every issued document, revisions included, takes
+  a new number.
+- **Immutability.** A trigger (`guard_quote_update`) refuses any change to an
+  issued quote's number, hash, doc type, input, plan snapshot or content,
+  except `status`, `approvals` and `lockedAt`, which the hash excludes. Status
+  can only move ISSUED → APPROVED, CHANGES_REQUESTED, SUPERSEDED or CANCELLED,
+  and CHANGES_REQUESTED → SUPERSEDED or CANCELLED. APPROVED is final. The
+  trigger applies to the service role as well.
+- **Evidence.** `quote_responses` and `payments` are append-only for everyone.
+  A trigger refuses UPDATE, DELETE and TRUNCATE, and the service role has only
+  SELECT and INSERT on them. Responses have no foreign key to quotes, so they
+  outlive a deleted project.
+- **RLS.** Quotes and responses are readable by anyone who can read the
+  project, and by studio members. Quote tokens are readable by the project
+  owner and the issuer. Subscriptions, passes, payments and checkouts are
+  readable by their own user only. `billing_events` is not readable by anyone
+  but the service role. No table has a client write path.
+
 ### Shared code in Deno
 
-The functions run the real `shared/rules.ts`, `shared/cost.ts` and catalog.
+The functions run the real `shared/rules.ts`, `shared/cost.ts`, catalog, and
+the business engines (`money`, `gst`, `trades`, `modular`, `quote`, `plans`,
+`ratecards/*.json`).
 Deno can't resolve the NodeNext-style `./types.js` specifiers in `shared/`,
 and deploy bundling only reliably includes files under `supabase/functions/`.
 For both reasons, `npm run sb:sync` copies these files into
 `supabase/functions/_shared/domain/` and changes only the following:
 
 - It rewrites `./x.js` imports to `./x.ts`.
+- It rewrites JSON imports to the generated modules.
 - It wraps `catalog.seed.json` as `catalog.ts`.
+- It wraps each `ratecards/<id>.json` as `ratecards/<id>.ts`, with a default
+  export typed `RateCard`. A new rate card file is picked up automatically,
+  but it must also be registered in `RATE_CARDS` in
+  `functions/_shared/business.ts` to be selectable as a `baseCardId`.
 
 The copies are committed. Run `npm run sb:check` to fail on drift.
 `sb:test`, `sb:e2e` and `sb:deploy` run that check, and `sb:functions` re-syncs.
@@ -102,12 +162,18 @@ Docker must be running. The first start downloads about 1–2 GB of images.
 npm install
 npm run sb:start      # db, auth, PostgREST, Kong, edge runtime, Mailpit (studio etc. excluded)
 npm run sb:status     # URLs and keys
-npm run sb:test       # pgTAP RLS tests
+npm run sb:test       # pgTAP: RLS, evidence, immutability, numbering (incl. two concurrent transactions)
 npm run sb:e2e        # full scenario against the running stack
+npm run sb:unit       # Deno unit tests for billing (simulation gate, webhook HMAC); needs deno
 npm run sb:functions  # foreground function server with logs + hot reload (optional; start already serves them)
 npm run sb:reset      # re-apply migrations to an empty database
 npm run sb:stop
 ```
+
+Before the first start, run `cp supabase/functions/.env.example supabase/functions/.env`.
+That file sets `BILLING_SIMULATION=1` and a local `RAZORPAY_WEBHOOK_SECRET`,
+which the e2e test signs with. It is read when the edge runtime starts, so
+after editing it run `npm run sb:stop && npm run sb:start`. See `docs/billing.md`.
 
 | What | Local value |
 |---|---|
@@ -140,7 +206,7 @@ Magic-link sign-in confirms the address on its own.
        This deploys every function under `supabase/functions/`. `verify_jwt = false` comes from
        `config.toml`, because the functions authenticate callers themselves and
        `open-share-link` must work signed out.
-5. [ ] Set the function secrets. `SUPABASE_URL`, `SUPABASE_ANON_KEY` and
+5. [ ] Set the function secrets (billing secrets: see `docs/billing.md`). `SUPABASE_URL`, `SUPABASE_ANON_KEY` and
        `SUPABASE_SERVICE_ROLE_KEY` are injected by Supabase automatically, so
        don't set them yourself.
        ```sh

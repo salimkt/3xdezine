@@ -14,6 +14,7 @@
  */
 
 import type { Project } from './types.ts';
+import type { QuoteDiff } from './quote.ts';
 
 export type Paise = number;
 
@@ -422,16 +423,16 @@ export interface SaveRateOverridesRequest { studioId: string; overrides: RateCar
 export interface SaveRateOverridesResponse { ok: true }
 
 export interface SaveQuoteDraftRequest { projectId: string; quoteId?: string; input: Omit<QuoteDraftInput, 'project' | 'rateCard' | 'studio' | 'watermark'> }
-export interface SaveQuoteDraftResponse { ok: true; quote: QuotationDocument }
+export interface SaveQuoteDraftResponse { ok: true; quote: QuotationDocument; /** Present for variation-order drafts. */ diff?: QuoteDiff }
 
 export interface IssueQuoteRequest { quoteId: string }
 export interface IssueQuoteResponse { ok: true; quote: QuotationDocument; shareToken: string; shareUrlPath: string }
 
 export interface CreateVariationOrderRequest { approvedQuoteId: string; input: SaveQuoteDraftRequest['input'] }
-export interface CreateVariationOrderResponse { ok: true; quote: QuotationDocument }
+export interface CreateVariationOrderResponse { ok: true; quote: QuotationDocument; diff: QuoteDiff }
 
 export interface OpenQuoteRequest { token: string }
-export interface OpenQuoteResponse { ok: true; quote: QuotationDocument; project: Project; studioName: string }
+export interface OpenQuoteResponse { ok: true; quote: QuotationDocument; project: Project; studioName: string; /** Present when the link is a variation order. */ diff?: QuoteDiff }
 
 export interface RespondToQuoteRequest {
   token: string;
@@ -444,7 +445,15 @@ export interface RespondToQuoteRequest {
 }
 export interface RespondToQuoteResponse { ok: true; quote: QuotationDocument }
 
-export interface CreateCheckoutRequest { plan: PlanId; interval: PlanPrice['interval']; projectId?: string }
+export interface CreateCheckoutRequest {
+  plan: PlanId;
+  interval: PlanPrice['interval'];
+  projectId?: string;
+  /** Local dev only: completes a simulated checkout. Refused unless billing simulation is enabled. */
+  simulateSuccess?: boolean;
+  orderId?: string;
+  subscriptionId?: string;
+}
 export interface CreateCheckoutResponse {
   ok: true;
   provider: 'RAZORPAY';
@@ -454,5 +463,9 @@ export interface CreateCheckoutResponse {
   amount: Paise;
   /** True when no Razorpay keys are configured: the server simulates checkout for local dev. */
   simulated: boolean;
+  /** Set when a simulated checkout was completed by this call. */
+  completed?: true;
 }
+
+export interface GetEntitlementsResponse { ok: true; entitlements: Entitlements }
 

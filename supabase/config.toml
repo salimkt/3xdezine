@@ -488,3 +488,35 @@ verify_jwt = false
 
 [functions.restore-version]
 verify_jwt = false
+
+# Business functions (shared/business.ts). open-quote, respond-to-quote and
+# razorpay-webhook are public; the rest authenticate the caller themselves.
+[functions.get-entitlements]
+verify_jwt = false
+
+[functions.save-studio]
+verify_jwt = false
+
+[functions.save-rate-overrides]
+verify_jwt = false
+
+[functions.save-quote-draft]
+verify_jwt = false
+
+[functions.issue-quote]
+verify_jwt = false
+
+[functions.create-variation-order]
+verify_jwt = false
+
+[functions.open-quote]
+verify_jwt = false
+
+[functions.respond-to-quote]
+verify_jwt = false
+
+[functions.create-checkout]
+verify_jwt = false
+
+[functions.razorpay-webhook]
+verify_jwt = false
