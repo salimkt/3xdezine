@@ -18,6 +18,8 @@ export interface PricingIntent {
   reason?: string;
   /** Offer a Project Pass for this cloud project. */
   projectId?: string;
+  /** Billing interval to start on, e.g. carried over from the public pricing page. */
+  interval?: 'MONTH' | 'YEAR';
 }
 
 interface BizState {

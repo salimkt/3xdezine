@@ -814,3 +814,21 @@
 .cloud-plan-row small {
   color: var(--text-3);
 }
+
+.cloud-legal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+  font-size: var(--fs-xs);
+}
+
+.cloud-legal a {
+  color: var(--text-3);
+  text-decoration: none;
+}
+
+.cloud-legal a:hover {
+  color: var(--text);
+}

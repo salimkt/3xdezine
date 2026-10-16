@@ -3,7 +3,8 @@ import type { Surface, SuggestionMode, SuggestionResponse } from '@shared/types'
 import { ApiOffline, getHealth, postSuggestions } from '../lib/api';
 import { useStore } from '../store';
 import { money, moneyPrecise, unitLabel } from '../lib/format';
-import { IconAlert, IconInfo } from './icons';
+import { IconInfo } from './icons';
+import { IconAlert } from './studioIcons';
 
 /**
  * `estimatedSavingsPct` is not pinned to a unit by the contract and the engine

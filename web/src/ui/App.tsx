@@ -5,6 +5,7 @@ import { MobileGate } from './AndroidApp';
 import { HomeScreen } from './HomeScreen';
 import { CLOUD_ENABLED } from '../cloud/state';
 import { quoteTokenFromUrl, useBiz } from '../business/state';
+import { siteRouteFromUrl } from '../site/routes';
 
 /** Sign-in, sharing and sync UI; never requested when cloud isn't configured. */
 const CloudRoot = lazy(() => import('../cloud/ui/shell').then((m) => ({ default: m.CloudRoot })));
@@ -28,6 +29,14 @@ const BizDialogs = lazy(() => import('../business/BizDialogs'));
  * cloud SDK, and three.js only if they tap "View in 3D".
  */
 const ApprovalPage = lazy(() => import('../business/approval/ApprovalPage'));
+
+/**
+ * Public pages (`#/pricing`, `#/terms`, `#/privacy`, `#/refunds`, `#/contact`,
+ * `#/about`, `#/delivery`): readable signed out, on a phone, by a payment
+ * gateway's reviewer. Like the approval page they render alone — no studio
+ * prefetch, no three.js, no supabase-js.
+ */
+const SiteRoot = lazy(() => import('../site/SiteRoot'));
 
 function whenIdle(callback: () => void): () => void {
   const w = window as Window & {
@@ -53,11 +62,22 @@ function StudioLoading() {
 
 export function App() {
   const [quoteToken, setQuoteToken] = useState(quoteTokenFromUrl);
+  const [siteRoute, setSiteRoute] = useState(siteRouteFromUrl);
   useEffect(() => {
-    const onHash = () => setQuoteToken(quoteTokenFromUrl());
+    const onHash = () => {
+      setQuoteToken(quoteTokenFromUrl());
+      setSiteRoute(siteRouteFromUrl());
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+  if (siteRoute) {
+    return (
+      <Suspense fallback={<div className="site-boot" role="status"><div className="spinner" /></div>}>
+        <SiteRoot route={siteRoute} />
+      </Suspense>
+    );
+  }
   if (quoteToken) {
     return (
       <Suspense fallback={<div className="approval-boot" role="status"><div className="spinner" /></div>}>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../store';
-import { IconInfo, IconLock } from './icons';
+import { IconInfo } from './icons';
+import { IconLock } from './studioIcons';
 
 /** One line, bottom centre, gone on its own. Never blocks anything. */
 export function Toast() {

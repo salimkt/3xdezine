@@ -3,9 +3,11 @@ import { useStore } from '../store';
 import { EMPTY_MANIFEST, loadTextureManifest, type HdriEntry } from '../lib/assets';
 import { useCost } from './CostPanel';
 import { money } from '../lib/format';
-import { AndroidMenu } from './AndroidApp';
+import { AndroidMenu } from './AndroidMenu';
 import { PolicyMenu } from './PolicyMenu';
-import { IconChevron, IconHome } from './icons';
+import { HelpMenu } from './HelpMenu';
+import { IconChevron } from './icons';
+import { IconHome } from './studioIcons';
 import { BLANK_META, loadTemplate, loadTemplateIndex } from '../lib/templates';
 import { useAnimatedNumber } from '../lib/motion';
 import { CLOUD_ENABLED, useCloud } from '../cloud/state';
@@ -169,6 +171,7 @@ export function TopBar() {
       )}
       <PolicyMenu />
       <AndroidMenu />
+      <HelpMenu />
 
       <div ref={settingsWrap} style={{ display: 'contents' }}>
         <button

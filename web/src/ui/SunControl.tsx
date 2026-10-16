@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
 import { SUN_MAX_HOUR, SUN_MIN_HOUR, formatClock, sunAt } from '../lib/sun';
 import { prefersReducedMotion } from '../lib/motion';
-import { IconPause, IconPlay, IconSun } from './icons';
+import { IconPause, IconPlay, IconSun } from './studioIcons';
 
 /** Hours of daylight swept per second of playback. */
 const PLAY_RATE = 1.6;

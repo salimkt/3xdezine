@@ -2,7 +2,7 @@ import { useStore } from '../store';
 import { polygonArea, wallLength } from '../lib/planMath';
 import { area as fmtArea, metres } from '../lib/format';
 import { canEditWall, effectivePolicy } from '@shared/rules';
-import { IconLock } from './icons';
+import { IconLock } from './studioIcons';
 
 export function Inspector() {
   const project = useStore((s) => s.project);

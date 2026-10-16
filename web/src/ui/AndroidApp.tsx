@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { assetUrl } from '../lib/assets';
-import { IconAndroid, IconDownload, IconInfo } from './icons';
+import { IconDownload, IconInfo } from './icons';
+import { SiteFooter } from '../site/SiteFooter';
 
 /**
  * Rolling release asset. It is built by CI and may legitimately not exist yet —
@@ -14,7 +15,7 @@ export const APK_URL = assetUrl(
   'https://github.com/salimkt/3xdezine/releases/download/android-latest/3xdezine.apk',
 );
 
-const INSTALL_NOTE =
+export const INSTALL_NOTE =
   'Android will ask for permission to install apps from your browser — that prompt is expected, not an error.';
 
 const DISMISS_KEY = 'dezine.mobile-gate.dismissed';
@@ -33,7 +34,7 @@ export function useHandheld(): boolean {
   return handheld;
 }
 
-function ApkLink({ className = 'btn btn-primary btn-block' }: { className?: string }) {
+export function ApkLink({ className = 'btn btn-primary btn-block' }: { className?: string }) {
   return (
     <a
       className={`apk-link ${className}`}
@@ -45,55 +46,6 @@ function ApkLink({ className = 'btn btn-primary btn-block' }: { className?: stri
       <IconDownload size={14} />
       Download the Android app
     </a>
-  );
-}
-
-/** Desktop affordance: a quiet icon button in the top bar with a popover. */
-export function AndroidMenu() {
-  const [open, setOpen] = useState(false);
-  const wrap = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (event: MouseEvent) => {
-      if (!wrap.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && setOpen(false);
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
-  return (
-    <div ref={wrap} style={{ display: 'contents' }}>
-      <button
-        className={`btn btn-ghost ${open ? 'btn-ghost-on' : ''}`}
-        onClick={() => setOpen((o) => !o)}
-        title="Get 3xDezine for Android"
-        aria-expanded={open}
-      >
-        <IconAndroid size={14} />
-        Android
-      </button>
-
-      {open && (
-        <div className="popover apk-menu" role="dialog" aria-label="3xDezine for Android">
-          <h3>3xDezine for Android</h3>
-          <p>
-            Review plans, finishes and the live estimate on site. Installed from a signed APK
-            published straight from CI.
-          </p>
-          <ApkLink />
-          <p className="apk-fineprint">
-            <IconInfo size={13} />
-            <span>{INSTALL_NOTE}</span>
-          </p>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -169,6 +121,7 @@ export function MobileGate({ projectName }: { projectName: string }) {
           Continue to the web studio anyway
         </button>
       </div>
+      <SiteFooter compact />
     </div>
   );
 }

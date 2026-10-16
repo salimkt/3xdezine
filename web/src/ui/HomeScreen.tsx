@@ -9,6 +9,7 @@ import { money } from '../lib/format';
 import { PlanThumb } from './PlanThumb';
 import { IconChevron } from './icons';
 import { CLOUD_ENABLED, useCloud } from '../cloud/state';
+import { SiteFooter } from '../site/SiteFooter';
 
 // The cloud strip shares a chunk with the shell's cloud root; neither exists
 // for a build without VITE_SUPABASE_URL.
@@ -238,11 +239,16 @@ export function HomeScreen() {
                 <small>Studio</small>
               </span>
             </div>
-            {CLOUD_ENABLED && (
-              <Suspense fallback={null}>
-                <HomeAccount />
-              </Suspense>
-            )}
+            <div className="home-brandrow-end">
+              <a className="home-pricing" href="#/pricing">
+                Pricing
+              </a>
+              {CLOUD_ENABLED && (
+                <Suspense fallback={null}>
+                  <HomeAccount />
+                </Suspense>
+              )}
+            </div>
           </div>
           <div className="home-title">
             <h1>Start from a plan</h1>
@@ -305,6 +311,7 @@ export function HomeScreen() {
         {canContinue && (
           <p className="home-note">Opening a template replaces the working plan in this browser.</p>
         )}
+        <SiteFooter />
       </div>
     </div>
   );

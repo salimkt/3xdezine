@@ -3,7 +3,7 @@ import type { Material, Surface, Tier } from '@shared/types';
 import { materialsForSurface, targetsFor, useStore } from '../store';
 import { moneyPrecise, unitLabel } from '../lib/format';
 import { assetUrl, EMPTY_MANIFEST, loadTextureManifest, type TextureManifest } from '../lib/assets';
-import { IconCheck, IconLock } from './icons';
+import { IconCheck, IconLock } from './studioIcons';
 import { canEditFinishes } from '@shared/rules';
 
 const SURFACE_LABEL: Record<Surface, string> = {

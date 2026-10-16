@@ -4,6 +4,7 @@ import { GOOGLE_ENABLED, ROLE_LABEL, loadEngine, useCloud, type Engine } from '.
 import { useStore } from '../../store';
 import { PLAN_LABEL, openPricing, useBiz } from '../../business/state';
 import './cloud.css';
+import { FOOTER_LINKS, siteUrl } from '../../site/routes';
 
 /** Runs an engine action, loading the SDK first if this is the first cloud action. */
 export async function withEngine<T>(fn: (engine: Engine) => Promise<T>): Promise<T> {
@@ -208,6 +209,17 @@ export function SignInDialog() {
               </button>
             </>
           )}
+          <p className="hint">
+            By continuing you agree to the{' '}
+            <a href={siteUrl('terms')} target="_blank" rel="noopener">
+              Terms
+            </a>{' '}
+            and{' '}
+            <a href={siteUrl('privacy')} target="_blank" rel="noopener">
+              Privacy Policy
+            </a>
+            . You must be 18 or older.
+          </p>
         </form>
       )}
     </Dialog>
@@ -316,6 +328,13 @@ export function AccountDialog() {
             {busy ? 'Saving…' : 'Save'}
           </button>
         </div>
+        <nav className="cloud-legal" aria-label="Policies">
+          {FOOTER_LINKS.map(([route, label]) => (
+            <a key={route} href={siteUrl(route)} target="_blank" rel="noopener">
+              {label}
+            </a>
+          ))}
+        </nav>
       </div>
     </Dialog>
   );

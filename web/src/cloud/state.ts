@@ -19,6 +19,15 @@ export const CLOUD_URL = env.VITE_SUPABASE_URL ?? '';
 export const CLOUD_ANON_KEY = env.VITE_SUPABASE_ANON_KEY ?? '';
 export const CLOUD_ENABLED = Boolean(CLOUD_URL && CLOUD_ANON_KEY);
 export const GOOGLE_ENABLED = CLOUD_ENABLED && env.VITE_SUPABASE_GOOGLE === '1';
+/**
+ * Whether checkout buttons are offered. A production build opts in with
+ * `VITE_BILLING=1` once Razorpay is live on the server, so a deployed site
+ * with cloud but no payments never shows a checkout that fails; dev builds
+ * with cloud default to on (the server simulates checkout), `VITE_BILLING=0`
+ * turns it off. Without cloud it is always off.
+ */
+export const BILLING_ENABLED =
+  CLOUD_ENABLED && (env.VITE_BILLING === '1' || (import.meta.env.DEV && env.VITE_BILLING !== '0'));
 
 /** supabase-js `storageKey`; fixed so the shell can see a session without the SDK. */
 export const AUTH_STORAGE_KEY = 'dezine.auth';

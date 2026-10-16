@@ -381,3 +381,17 @@
     display: none !important;
   }
 }
+
+/* The public-pages footer, kept quiet on the client's page. */
+.ap .site-foot {
+  color: #8a9099;
+  margin-top: 8px;
+}
+
+.ap .site-foot a {
+  color: #6b727c;
+}
+
+.ap .site-foot a:hover {
+  color: #1b1f24;
+}

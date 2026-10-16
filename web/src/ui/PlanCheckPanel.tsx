@@ -2,7 +2,8 @@ import { useState } from 'react';
 import type { RuleSeverity, RuleViolation } from '@shared/types';
 import { useStore } from '../store';
 import { severityCounts, usePlanViolations } from '../lib/checks';
-import { IconAlert, IconCheck, IconChevron, IconInfo } from './icons';
+import { IconChevron, IconInfo } from './icons';
+import { IconAlert, IconCheck } from './studioIcons';
 
 const ORDER: RuleSeverity[] = ['ERROR', 'WARNING', 'INFO'];
 const LABEL: Record<RuleSeverity, string> = { ERROR: 'Errors', WARNING: 'Warnings', INFO: 'Notes' };

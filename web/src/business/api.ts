@@ -1,5 +1,6 @@
 import {
   BUSINESS_FUNCTIONS,
+  type CancelSubscriptionResponse,
   type CreateCheckoutRequest,
   type CreateCheckoutResponse,
   type CreateVariationOrderRequest,
@@ -257,4 +258,11 @@ export function respondToQuote(req: RespondToQuoteRequest): Promise<RespondToQuo
 
 export function createCheckout(req: CreateCheckoutRequest): Promise<CreateCheckoutResponse> {
   return authedCall<CreateCheckoutResponse>(BUSINESS_FUNCTIONS.createCheckout, req);
+}
+
+/** Stops renewal; access continues to the end of the paid period. */
+export async function cancelSubscription(reason?: string): Promise<CancelSubscriptionResponse> {
+  const res = await authedCall<CancelSubscriptionResponse>(BUSINESS_FUNCTIONS.cancelSubscription, reason ? { reason } : {});
+  await refreshEntitlements();
+  return res;
 }

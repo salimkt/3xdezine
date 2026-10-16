@@ -13,7 +13,7 @@ import { SuggestionsPanel } from './SuggestionsPanel';
 import { PlanCheckPanel } from './PlanCheckPanel';
 import { ProposalsPanel } from './ProposalsPanel';
 import { Toast } from './Toast';
-import { IconAlert } from './icons';
+import { IconAlert } from './studioIcons';
 
 /**
  * three.js, the TSL post stack and the scene graph are most of the bundle, and

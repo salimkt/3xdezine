@@ -9,6 +9,7 @@ import { BizError, openQuote, respondToQuote } from '../api';
 import { useWorkspace } from '../workspace';
 import { DOC_TITLE, QuoteDoc } from '../doc/QuoteDoc';
 import './approval.css';
+import { SiteFooter } from '../../site/SiteFooter';
 
 /**
  * The client approval page, `#/q/<token>`. A homeowner opens it from
@@ -184,6 +185,7 @@ function Loaded({ data, token, reload, onQuote }: { data: OpenQuoteResponse; tok
             <small>Plan → 3D → GST quotation your client approves on WhatsApp. Make yours free →</small>
           </a>
         )}
+        <SiteFooter compact newTab />
       </main>
     </div>
   );

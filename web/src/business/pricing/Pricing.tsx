@@ -1,90 +1,15 @@
 import { useState } from 'react';
-import { PRICES, type CreateCheckoutResponse, type PlanId, type PlanPrice } from '@shared/business';
+import type { CreateCheckoutResponse, PlanId, PlanPrice } from '@shared/business';
 import { formatINR } from '../engines';
-import { CLOUD_ENABLED, useCloud } from '../../cloud/state';
+import { BILLING_ENABLED, useCloud } from '../../cloud/state';
 import { Dialog, ErrorLine, useAction } from '../../cloud/ui/common';
-import { createCheckout, isSignedIn, refreshEntitlements } from '../api';
+import { cancelSubscription, createCheckout, isSignedIn, refreshEntitlements } from '../api';
 import { PLAN_LABEL, useBiz } from '../state';
 import { closeBizDialog } from '../BizDialogs';
 import { confirmSimulated, openRazorpay } from './checkout';
-
-type Interval = 'MONTH' | 'YEAR';
-
-interface Tier {
-  plan: PlanId;
-  tagline: string;
-  features: string[];
-  /** Sales-led tiers have no checkout. */
-  contact?: boolean;
-}
-
-/** From docs/strategy.md — the gates are enforced server-side; this is the menu. */
-const TIERS: Tier[] = [
-  {
-    plan: 'FREE',
-    tagline: 'Plan, 3D, estimate and NBC checks — the whole design tool.',
-    features: [
-      '2 active projects',
-      'Quotations with client approval links',
-      '“Made with 3xDezine” on every share',
-      'Default rate card, editable per line',
-      '7-day history',
-    ],
-  },
-  {
-    plan: 'PROJECT_PASS',
-    tagline: 'One client, done properly — no subscription.',
-    features: [
-      'This project’s quotes unbranded, with your studio details',
-      'Client approval link',
-      'Valid 90 days',
-    ],
-  },
-  {
-    plan: 'SOLO',
-    tagline: 'For the independent designer quoting every week.',
-    features: [
-      'Unlimited projects',
-      'Branded GST quotes and tax invoices',
-      'Your own rate cards',
-      'Modular kitchen & wardrobe configurator',
-      'Variation orders after approval',
-      '90-day history',
-    ],
-  },
-  {
-    plan: 'STUDIO',
-    tagline: 'A small team sharing one studio.',
-    features: [
-      'Everything in Solo',
-      '3 seats with roles (+₹599/seat)',
-      'Shared rate cards and branding',
-      'Unlimited history',
-    ],
-  },
-  {
-    plan: 'BUSINESS',
-    tagline: 'White-label catalogue for dealers, brands and kitchen makers.',
-    features: ['From ₹14,999/month', 'Your catalogue and rate packs', 'Sales-led onboarding'],
-    contact: true,
-  },
-];
-
-const RANK: Record<PlanId, number> = { FREE: 0, PROJECT_PASS: 1, SOLO: 2, STUDIO: 3, BUSINESS: 4 };
-
-function priceFor(plan: PlanId, interval: Interval): PlanPrice | undefined {
-  if (plan === 'PROJECT_PASS') return PRICES.find((p) => p.plan === plan);
-  return PRICES.find((p) => p.plan === plan && p.interval === interval);
-}
-
-function priceLine(plan: PlanId, interval: Interval) {
-  if (plan === 'FREE') return { amount: '₹0', per: 'forever' };
-  if (plan === 'BUSINESS') return { amount: '₹14,999', per: 'from, per month' };
-  const p = priceFor(plan, interval);
-  if (!p) return { amount: '—', per: '' };
-  const per = p.interval === 'ONE_TIME' ? 'per project, one-off' : p.interval === 'YEAR' ? 'per year' : 'per month';
-  return { amount: formatINR(p.amount, { paise: false }), per };
-}
+import { RANK, TIERS, planMailto, priceLine, yearlyToggleLabel, type Interval } from './tiers';
+import { gstNote } from '../../legal/business';
+import { siteUrl } from '../../site/routes';
 
 export default function Pricing() {
   const ents = useBiz((s) => s.entitlements);
@@ -94,9 +19,10 @@ export default function Pricing() {
   const current: PlanId = ents?.plan ?? 'FREE';
   const projectId = intent.projectId ?? activeId;
   const hasPass = Boolean(projectId && ents?.passProjectIds.includes(projectId));
-  const [interval, setInterval] = useState<Interval>('YEAR');
+  const [interval, setInterval] = useState<Interval>(intent.interval ?? 'YEAR');
   const [simulated, setSimulated] = useState<{ checkout: CreateCheckoutResponse; plan: PlanId; interval: PlanPrice['interval'] } | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const { busy, error, setError, run } = useAction();
 
   const buy = (plan: PlanId) =>
@@ -145,11 +71,16 @@ export default function Pricing() {
           <div className="segmented" role="radiogroup" aria-label="Billing interval">
             {(['MONTH', 'YEAR'] as const).map((iv) => (
               <button key={iv} role="radio" aria-checked={interval === iv} className={`seg ${interval === iv ? 'seg-on' : ''}`} onClick={() => setInterval(iv)}>
-                {iv === 'MONTH' ? 'Monthly' : 'Yearly · 2 months free'}
+                {iv === 'MONTH' ? 'Monthly' : yearlyToggleLabel()}
               </button>
             ))}
           </div>
-          <span className="hint">Prices exclude GST. GST at 18% is added at checkout once 3xDezine is registered.</span>
+          <span className="hint">
+            {gstNote()}{' '}
+            <a href={siteUrl('pricing')} target="_blank" rel="noopener">
+              Compare every plan and read the FAQ ↗
+            </a>
+          </span>
         </div>
 
         {simulated && (
@@ -198,13 +129,13 @@ export default function Pricing() {
                   {tier.plan === 'FREE' ? (
                     <span className="hint">{current === 'FREE' ? 'You’re on Free.' : 'Included.'}</span>
                   ) : tier.contact ? (
-                    <a className="btn btn-block" href="mailto:hello@3xdezine.app?subject=3xDezine%20Business">
+                    <a className="btn btn-block" href={planMailto(tier.plan, interval)}>
                       Talk to us
                     </a>
-                  ) : !CLOUD_ENABLED ? (
-                    <button className="btn btn-block" disabled title="Checkout needs the cloud version with an account">
-                      Needs an account
-                    </button>
+                  ) : !BILLING_ENABLED ? (
+                    <a className="btn btn-block" href={planMailto(tier.plan, interval)} title="Payments aren’t open yet — we’ll email you when they are">
+                      Notify me
+                    </a>
                   ) : isCurrent || lower ? (
                     <button className="btn btn-block" disabled>
                       {isCurrent ? 'Active' : 'Included'}
@@ -225,16 +156,63 @@ export default function Pricing() {
             );
           })}
         </div>
-        {ents?.currentPeriodEnd && (
+        {ents?.currentPeriodEnd && (() => {
+          const until = new Date(ents.currentPeriodEnd).toLocaleDateString('en-IN', { dateStyle: 'medium' });
+          if (ents.renews === false) {
+            return (
+              <p className="hint">
+                {PLAN_LABEL[current]} is cancelled and ends on {until}. You won’t be charged again, and you keep every
+                paid feature until then.
+              </p>
+            );
+          }
+          // Only the subscriber gets `renews`; a studio seat holder sees the date alone.
+          if (ents.renews !== true) return <p className="hint">{PLAN_LABEL[current]} runs until {until}.</p>;
+          return (
+            <div className="plan-renewal">
+              <p className="hint">
+                {PLAN_LABEL[current]} renews on {until}.{' '}
+                {!confirmCancel && (
+                  <button type="button" className="plan-cancel-link" disabled={busy} onClick={() => setConfirmCancel(true)}>
+                    Cancel subscription
+                  </button>
+                )}
+              </p>
+              {confirmCancel && (
+                <div className="plan-cancel-confirm" role="group" aria-label="Confirm cancellation">
+                  <p>
+                    Cancel renewal? You keep {PLAN_LABEL[current]} until <strong>{until}</strong> and won’t be charged
+                    again. Partial periods aren’t refunded — see the{' '}
+                    <a href={siteUrl('refunds')} target="_blank" rel="noopener">refund policy</a>.
+                  </p>
+                  <div className="plan-cancel-actions">
+                    <button type="button" className="btn" disabled={busy} onClick={() => setConfirmCancel(false)}>
+                      Keep my plan
+                    </button>
+                    <button
+                      type="button"
+                      className="btn plan-cancel-danger"
+                      disabled={busy}
+                      onClick={async () => {
+                        const res = await run(() => cancelSubscription());
+                        if (res) {
+                          setConfirmCancel(false);
+                          setDone(`Cancelled. ${PLAN_LABEL[current]} stays active until ${until}.`);
+                        }
+                      }}
+                    >
+                      {busy ? 'Cancelling…' : 'Cancel renewal'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+        {!BILLING_ENABLED && (
           <p className="hint">
-            {PLAN_LABEL[current]} renews or ends on{' '}
-            {new Date(ents.currentPeriodEnd).toLocaleDateString('en-IN', { dateStyle: 'medium' })}.
-          </p>
-        )}
-        {!CLOUD_ENABLED && (
-          <p className="hint">
-            This demo runs without an account, so everything is on the Free plan: quotes work in this browser and print
-            with the “Made with 3xDezine” mark.
+            Payments aren’t open yet, so everything is on the Free plan: quotes work in this browser and print with the
+            “Made with 3xDezine” mark. “Notify me” emails us — we’ll write back when paid plans open.
           </p>
         )}
       </div>

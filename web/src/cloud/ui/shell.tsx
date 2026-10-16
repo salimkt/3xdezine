@@ -5,7 +5,8 @@ import { loadSavedProject } from '../../lib/persist';
 import { BLANK_META, loadTemplate, loadTemplateIndex } from '../../lib/templates';
 import { money } from '../../lib/format';
 import { PlanThumb } from '../../ui/PlanThumb';
-import { IconChevron, IconPlus } from '../../ui/icons';
+import { IconChevron } from '../../ui/icons';
+import { IconPlus } from '../../ui/studioIcons';
 import { loadEngine, useCloud, wantsEngineAtStart } from '../state';
 import type { PendingInvite, ProjectTile } from '../engine';
 import {

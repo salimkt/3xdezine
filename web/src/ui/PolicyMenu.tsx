@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { EditLevel } from '@shared/types';
 import { useStore } from '../store';
 import { effectivePolicy } from '@shared/rules';
-import { IconChevron, IconLock } from './icons';
+import { IconChevron } from './icons';
+import { IconLock } from './studioIcons';
 import { ROLE_LABEL, useCloud } from '../cloud/state';
 
 export const LEVELS: Array<{ id: EditLevel; label: string; detail: string }> = [

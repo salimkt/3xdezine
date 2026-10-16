@@ -1,4 +1,4 @@
-import { IconFit, IconMinus, IconPlus } from './icons';
+import { IconFit, IconMinus, IconPlus } from './studioIcons';
 
 /**
  * The floating zoom control shared by the plan and the 3D viewport, so both

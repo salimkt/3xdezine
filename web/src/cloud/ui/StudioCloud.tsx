@@ -5,7 +5,7 @@ import { polygonArea } from '../../lib/planMath';
 import { money } from '../../lib/format';
 import { useCost } from '../../ui/CostPanel';
 import { signedMoney } from '../../ui/ProposalsPanel';
-import { IconLock } from '../../ui/icons';
+import { IconLock } from '../../ui/studioIcons';
 import { ROLE_LABEL, useCloud, useHistoryPanel, type SaveState } from '../state';
 import type { VersionRow } from '../engine';
 import { AccountChip, Avatar, ErrorLine, SignInButton, ago, useAction, withEngine } from './common';

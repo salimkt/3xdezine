@@ -3657,3 +3657,133 @@ button.check-badge:hover {
   display: inline-flex;
   gap: 4px;
 }
+
+/* ======================================================= public site footer */
+/* In the shell: the home screen and phone landing carry it; the public pages'
+   own styles are a lazy chunk (site/site.css). */
+
+.site-boot {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--n-0);
+}
+
+.site-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 20px;
+  padding: 18px 0 4px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--text-4);
+  font-size: var(--fs-sm);
+}
+
+.site-foot nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.site-foot a {
+  color: var(--text-3);
+  text-decoration: none;
+  padding: 4px 0;
+}
+
+.site-foot a:hover {
+  color: var(--text);
+}
+
+.site-foot-compact {
+  justify-content: center;
+  border-top: 0;
+  padding: 8px 0 0;
+  font-size: 12.5px;
+}
+
+.site-foot-compact nav {
+  gap: 2px 12px;
+  justify-content: center;
+}
+
+.home-pricing {
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  padding: 6px 4px;
+}
+
+.home-pricing:hover {
+  color: var(--text);
+}
+
+.home-brandrow-end {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.mobile-gate .site-foot {
+  border-top: 0;
+  justify-content: center;
+  padding-top: 6px;
+}
+
+.help-menu {
+  width: 232px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.help-menu .btn-block {
+  justify-content: center;
+}
+
+.help-links {
+  display: flex;
+  flex-direction: column;
+}
+
+.help-links a,
+.help-mail {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 6px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: var(--fs-sm);
+}
+
+.help-links a:hover {
+  background: var(--n-5);
+  color: var(--text);
+}
+
+.help-links span {
+  color: var(--text-4);
+}
+
+.help-mail {
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0;
+  padding-top: 8px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+a.btn {
+  text-decoration: none;
+  justify-content: center;
+}
+
+.hint a {
+  color: var(--accent);
+}

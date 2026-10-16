@@ -6,7 +6,7 @@ import { applyEdits, canEditWall, checkEdit, effectivePolicy } from '@shared/rul
 import { proposedProject, usePreviewProposal } from '../lib/checks';
 import { PlanCheckBadge, SeverityIcon } from './PlanCheckPanel';
 import { LEVELS } from './PolicyMenu';
-import { IconLock } from './icons';
+import { IconLock } from './studioIcons';
 import { area as fmtArea, metres } from '../lib/format';
 import { DUR, TweenSlot, easeOutCubic, lerp, prefersReducedMotion } from '../lib/motion';
 import { ZoomCluster } from './ZoomCluster';
