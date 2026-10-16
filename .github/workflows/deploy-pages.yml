@@ -45,6 +45,17 @@ jobs:
         # Pages serves from /<repo>/, so assets must resolve against that subpath.
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
+          # Public values, set as repo Actions *variables* by scripts/go-live.mjs.
+          # While they are empty the site ships fully local (no sign-in, no
+          # billing) — exactly today's behaviour — so this is safe to merge first.
+          # The anon key is designed to be public; RLS protects the data. The
+          # service-role key must never appear here.
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_GOOGLE: ${{ vars.VITE_SUPABASE_GOOGLE }}
+          # '1' only once Razorpay keys are set on the server — otherwise paid
+          # tiers show "Notify me" instead of a checkout that cannot take money.
+          VITE_BILLING: ${{ vars.VITE_BILLING }}
         run: npm run build
 
       - name: SPA fallback

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "House and interior design platform — 2D floor plan to photorealistic 3D, with live buffered material costing and material suggestions.",
+  "description": "House and interior design platform \u2014 2D floor plan to photorealistic 3D, with live buffered material costing and material suggestions.",
   "engines": {
     "node": ">=22.12.0 <26"
   },
@@ -27,7 +27,8 @@
     "sb:e2e": "npm run sb:check && tsx supabase/tests/e2e.ts",
     "sb:unit": "deno test --allow-env --no-lock --node-modules-dir=none supabase/tests/billing.test.ts",
     "sb:functions": "npm run sb:sync && supabase functions serve",
-    "sb:deploy": "npm run sb:check && supabase db push && supabase functions deploy"
+    "sb:deploy": "npm run sb:check && supabase db push && supabase functions deploy",
+    "go-live": "tsx scripts/go-live.ts"
   },
   "devDependencies": {
     "supabase": "2.119.0",
