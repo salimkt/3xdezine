@@ -365,11 +365,14 @@ export async function entitlementsOf(userId: string): Promise<Entitlements> {
   const passProjectIds = [...new Set((passes ?? []).map((p) => p.project_id as string))];
 
   const plan: PlanId = best?.plan ?? (passProjectIds.length ? 'PROJECT_PASS' : 'FREE');
-  return entitlementsFor(plan, {
+  const ent = entitlementsFor(plan, {
     passProjectIds,
     periodEnd: best?.current_period_end ?? null,
     ...(best ? { seats: best.seats } : {}),
   });
+  // Only the subscriber can cancel; a seat holder never gets `renews`.
+  if (best && best.user_id === userId) ent.renews = best.status !== 'CANCELLED';
+  return ent;
 }
 
 /** Entitlements that apply to one project (Project Pass unlocks branding there only). */

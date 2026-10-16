@@ -671,6 +671,24 @@ async function business() {
   const keptEvidence = await rest(`payments?select=id`, F);
   check('Deleting a quotations-only project removes its quotes and links; the payments ledger is kept',
     del3.status === 200 && goneLink.status === 404 && keptEvidence.json?.length >= 3, `${keptEvidence.json?.length} payment rows`);
+
+  // Cancelling: the Terms promise cancellation from the account menu. Renewal
+  // stops, but access continues to the end of the period already paid for.
+  const anonCancel = await call('cancel-subscription', {});
+  const strangerCancel = await call('cancel-subscription', {}, H);
+  check('cancel-subscription refuses anonymous callers (401) and users with no paid plan (404)',
+    anonCancel.status === 401 && strangerCancel.status === 404, strangerCancel.json?.message);
+  const cancel1 = await call('cancel-subscription', { reason: 'e2e' }, F);
+  const entAfterCancel = await call('get-entitlements', {}, F);
+  const subRow = (await rest(`subscriptions?razorpay_subscription_id=eq.${solo.json.subscriptionId}&select=status,current_period_end`, F)).json?.[0];
+  check('Cancelling stops renewal but keeps Solo until the paid period ends',
+    cancel1.status === 200 && cancel1.json?.status === 'CANCELLED' && cancel1.json?.alreadyCancelled === false &&
+      new Date(cancel1.json?.accessUntil).getTime() > Date.now() && entAfterCancel.json?.entitlements?.plan === 'SOLO' &&
+      entAfterCancel.json?.entitlements?.renews === false &&
+      subRow?.status === 'CANCELLED',
+    `access until ${cancel1.json?.accessUntil}; plan now ${entAfterCancel.json?.entitlements?.plan}`);
+  const cancel2 = await call('cancel-subscription', {}, F);
+  check('Cancelling twice is idempotent', cancel2.status === 200 && cancel2.json?.alreadyCancelled === true);
 }
 
 main()

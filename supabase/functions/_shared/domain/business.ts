@@ -380,6 +380,13 @@ export interface Entitlements {
   historyDays: number | null;
   /** When a paid period ends; null for FREE. */
   currentPeriodEnd: string | null;
+  /**
+   * For the account's OWN paid subscription: true if it renews, false if it has
+   * been cancelled and ends at `currentPeriodEnd`. Absent on Free and Project
+   * Pass, and for a seat inherited from a studio owner — only the owner can
+   * cancel, so seat holders are never offered it.
+   */
+  renews?: boolean;
 }
 
 export interface PlanPrice {
@@ -416,6 +423,7 @@ export const BUSINESS_FUNCTIONS = {
   respondToQuote: 'respond-to-quote',      // PUBLIC: approve / request changes, pinned to hash
   createCheckout: 'create-checkout',       // Razorpay order (Project Pass) or subscription
   razorpayWebhook: 'razorpay-webhook',     // PUBLIC, HMAC-verified
+  cancelSubscription: 'cancel-subscription', // stops renewal; access continues to the end of the paid period
 } as const;
 
 export interface SaveStudioRequest { studio: Omit<StudioProfile, 'id'> & { id?: string } }
@@ -471,3 +479,19 @@ export interface CreateCheckoutResponse {
 
 export interface GetEntitlementsResponse { ok: true; entitlements: Entitlements }
 
+
+/**
+ * Cancels renewal of the caller's subscription. Razorpay is told to cancel at
+ * the END of the current cycle, so the subscriber keeps what they paid for
+ * until `accessUntil` and is never charged again. Idempotent: cancelling an
+ * already-cancelled subscription returns the same result.
+ */
+export interface CancelSubscriptionRequest { /** Optional reason, stored for product feedback only. */ reason?: string }
+export interface CancelSubscriptionResponse {
+  ok: true;
+  plan: PlanId;
+  status: 'CANCELLED';
+  /** ISO time the paid plan ends; null if the provider did not report one. */
+  accessUntil: string | null;
+  alreadyCancelled: boolean;
+}

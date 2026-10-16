@@ -518,5 +518,8 @@ verify_jwt = false
 [functions.create-checkout]
 verify_jwt = false
 
+[functions.cancel-subscription]
+verify_jwt = false
+
 [functions.razorpay-webhook]
 verify_jwt = false
