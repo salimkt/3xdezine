@@ -69,7 +69,11 @@ export async function buildDocument(opts: {
     return buildQuote(
     {
       ...input,
-      lines: ent.rateCards ? input.lines : withCardRates(input.lines, rateCard),
+      // Line rates and tax codes are the designer's own, on every plan — a quoting
+      // tool must never change a price the user set. What `rateCards` gates is
+      // SAVED overrides (save-rate-overrides). Amounts and totals are still
+      // recomputed by buildQuote, so they cannot be tampered with.
+      lines: input.lines,
       project: project.data,
       rateCard,
       ...(overrides ? { overrides } : {}),
@@ -107,17 +111,3 @@ export function finalize(doc: QuotationDocument, f: {
   return out;
 }
 
-/**
- * Without the `rateCards` entitlement, lines that cite a rate-card entry are
- * priced at that entry's rates (and HSN/SAC, GST rate) whatever the client
- * sent — "default rate card only" on Free.
- */
-function withCardRates(lines: DraftInput['lines'], card: RateCard): DraftInput['lines'] {
-  const byId = new Map(card.entries.map((e) => [e.id, e]));
-  return lines.map((l) => {
-    if (l.kind !== 'TRADE' || !l.rateCardEntryId) return l;
-    const e = byId.get(l.rateCardEntryId);
-    if (!e) return l;
-    return { ...l, materialRate: e.materialRate, labourRate: e.labourRate, hsnSac: e.hsnSac, gstRatePct: e.gstRatePct, supplyNature: e.supplyNature };
-  });
-}

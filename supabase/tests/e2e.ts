@@ -467,19 +467,27 @@ async function business() {
   const freeRates = await call('save-rate-overrides', { studioId, overrides: { baseCardId: 'metro-mid-2026', overrides: {}, added: [], disabled: [] } }, F);
   check('Free plan cannot save rate-card overrides', freeRates.status === 403, freeRates.json?.message);
 
-  // Draft: server recomputes, ignoring tampered totals and (on Free) tampered rates.
+  // Draft: the server recomputes every amount and total, so forged arithmetic is
+  // ignored — but a rate the designer set is THEIR price and is honoured on every
+  // plan. (Free gates saved rate cards, never the user's own prices.)
   const honest = draftInput(stored);
   const tampered = structuredClone(honest);
   const t0 = tampered.lines[0] as any;
-  t0.amount = 1;
-  t0.materialRate = 1;
-  (tampered as any).grandTotal = 100;
+  t0.amount = 1;                       // forged arithmetic
+  (tampered as any).grandTotal = 100;  // forged arithmetic
+  t0.materialRate = 1;                 // a genuine edit: the designer's own rate
   const d1 = await call('save-quote-draft', { projectId: P1, input: tampered }, F);
   const q1: QuotationDocument = d1.json?.quote;
-  const expected = buildQuote({ ...honest, project: stored, rateCard: rateCard(), studio: { ...studio.json.studio }, watermark: true });
-  check('save-quote-draft: server recomputes the document (tampered amount/rate/total ignored)',
-    d1.status === 200 && q1.status === 'DRAFT' && q1.grandTotal === expected.grandTotal && q1.grandTotal > 0 && q1.watermark === true,
+  const studioSnap = { ...studio.json.studio };
+  const expected = buildQuote({ ...tampered, project: stored, rateCard: rateCard(), studio: studioSnap, watermark: true });
+  const atDefault = buildQuote({ ...honest, project: stored, rateCard: rateCard(), studio: studioSnap, watermark: true });
+  const savedLine = q1?.sections.flatMap((x) => x.lines).find((l) => l.id === t0.id) as any;
+  check('save-quote-draft: server recomputes amounts and totals (forged line amount and grand total ignored)',
+    d1.status === 200 && q1.status === 'DRAFT' && q1.grandTotal === expected.grandTotal && q1.grandTotal > 100 && q1.watermark === true,
     `server ₹${(q1?.grandTotal ?? 0) / 100} vs engine ₹${expected.grandTotal / 100}`);
+  check('save-quote-draft: a Free user’s own line rate is honoured, not reset to the default card',
+    savedLine?.materialRate === 1 && q1.grandTotal < atDefault.grandTotal,
+    `line rate ${savedLine?.materialRate}; total ₹${(q1?.grandTotal ?? 0) / 100} vs default-card ₹${atDefault.grandTotal / 100}`);
 
   const iss1 = await call('issue-quote', { quoteId: q1.id }, F);
   const Q1: QuotationDocument = iss1.json?.quote;

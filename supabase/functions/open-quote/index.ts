@@ -4,6 +4,7 @@
 // name. Unknown and revoked tokens are NOT_FOUND. Nothing about other quotes,
 // members or the live project is returned.
 import type { OpenQuoteResponse } from '../_shared/domain/business.ts';
+import type { QuoteDiff } from '../_shared/domain/quote.ts';
 import { admin } from '../_shared/auth.ts';
 import { notFound, serve, str } from '../_shared/http.ts';
 import { loadQuote, publicProject } from '../_shared/business.ts';
@@ -18,12 +19,12 @@ serve(async (_req, body) => {
   const q = await loadQuote(link.quote_id);
   if (!q || q.status === 'DRAFT' || !q.project_data) throw notFound(GONE);
   const supplier = q.data.supplier;
-  const res: Omit<OpenQuoteResponse, 'ok'> & { diff?: unknown } = {
+  const res: Omit<OpenQuoteResponse, 'ok'> = {
     quote: q.data,
     project: publicProject(q.project_data),
     studioName: supplier?.tradeName || supplier?.legalName || 'Your designer',
     // Variation orders: what changed against the approved quote.
-    ...(q.diff ? { diff: q.diff } : {}),
+    ...(q.diff ? { diff: q.diff as QuoteDiff } : {}),
   };
   return res;
 });
