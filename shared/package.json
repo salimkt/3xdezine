@@ -10,11 +10,19 @@
     "./catalog.seed.json": "./catalog.seed.json",
     "./sample-project.json": "./sample-project.json",
     "./rules": "./rules.ts",
+    "./business": "./business.ts",
+    "./money": "./money.ts",
+    "./gst": "./gst.ts",
+    "./trades": "./trades.ts",
+    "./modular": "./modular.ts",
+    "./quote": "./quote.ts",
+    "./plans": "./plans.ts",
+    "./ratecards/*.json": "./ratecards/*.json",
     "./templates/index.json": "./templates/index.json",
     "./templates/*.json": "./templates/*.json"
   },
   "scripts": {
-    "test": "tsx --test cost.test.ts rules.test.ts templates.test.ts",
+    "test": "tsx --test cost.test.ts rules.test.ts templates.test.ts money.test.ts gst.test.ts trades.test.ts modular.test.ts quote.test.ts plans.test.ts",
     "typecheck": "tsc --noEmit",
     "templates": "tsx templates/generate.ts"
   }
