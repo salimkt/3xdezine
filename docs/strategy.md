@@ -56,7 +56,7 @@ slow cycles — wave two, once there are ~500 active designers).
 
 | Tier | Price | Gates |
 |---|---|---|
-| **Free** | ₹0 | 2 active projects; estimate, 3D and NBC checks free (the hook); quotations (not invoices) with client approval links, all carrying "Made with 3xDezine" — every free quote a homeowner receives is an ad; default rate card only; no modular configurator; 7-day history |
+| **Free** | ₹0 | 2 active projects; estimate, 3D and NBC checks free (the hook); quotations (not invoices) with client approval links, all carrying "Made with 3xDezine" — every free quote a homeowner receives is an ad; edit any rate on a quote, but no saved rate cards; no modular configurator; 7-day history |
 | **Project Pass** | ₹499 per project, one-off | One project's quotes unbranded with your studio details, client approval link, 90 days |
 | **Solo** | ₹799/month · ₹7,999/year | Unlimited projects, branded GST quotes, approvals, rate cards, modular configurator, variation orders, 90-day history |
 | **Studio** | ₹2,499/month (3 seats, +₹599/seat) · ₹24,999/year | Team seats and roles, shared rate cards and branding, unlimited history |

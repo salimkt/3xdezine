@@ -799,3 +799,18 @@
     flex-wrap: wrap;
   }
 }
+
+.cloud-plan-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--n-4);
+  border: 1px solid var(--line);
+  font-size: var(--fs-sm);
+}
+
+.cloud-plan-row small {
+  color: var(--text-3);
+}

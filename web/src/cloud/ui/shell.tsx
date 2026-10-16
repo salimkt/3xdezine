@@ -21,6 +21,7 @@ import {
   withEngine,
 } from './common';
 import { ConflictDialog, ShareDialog } from './dialogs';
+import { openPricing, useBiz } from '../../business/state';
 
 const SQFT_PER_SQM = 10.7639;
 
@@ -35,6 +36,16 @@ export function CloudRoot() {
   const flash = useCloud((s) => s.flash);
   const screen = useStore((s) => s.screen);
   const [shown, setShown] = useState<typeof flash>(null);
+
+  // The plan and the studio follow the account: re-read on sign-in, forget on sign-out.
+  const status = useCloud((s) => s.status);
+  useEffect(() => {
+    if (status === 'signedIn') {
+      void import('../../business/api').then((m) => Promise.all([m.refreshEntitlements(), m.loadCloudStudio()]));
+    } else if (status === 'signedOut') {
+      useBiz.setState((b) => (b.studioSource === 'cloud' ? { entitlements: null, studio: null, studioSource: 'none' } : { entitlements: null }));
+    }
+  }, [status]);
 
   useEffect(() => {
     if (wantsEngineAtStart()) loadEngine().catch((e) => console.warn('[3xDezine] cloud unavailable', e));
@@ -123,7 +134,7 @@ export function HomeProjects() {
         <h2>Your projects</h2>
         {tiles && <span className="badge badge-quiet">{tiles.length}</span>}
         <span className="topbar-spacer" />
-        <NewProjectMenu />
+        <NewProjectMenu owned={tiles?.filter((t) => t.role === 'OWNER').length ?? 0} />
       </header>
       {invites.length > 0 && <Invites invites={invites} />}
       <ErrorLine text={error} />
@@ -344,8 +355,10 @@ function CloudTile({ tile, index }: { tile: ProjectTile; index: number }) {
   );
 }
 
-function NewProjectMenu() {
+function NewProjectMenu({ owned }: { owned: number }) {
   const [open, setOpen] = useState(false);
+  const limit = useBiz((s) => s.entitlements?.maxActiveProjects ?? 2);
+  const atLimit = limit !== null && owned >= limit;
   const [index, setIndex] = useState<PlanTemplateMeta[]>([]);
   const { busy, error, run } = useAction();
   const wrap = useRef<HTMLDivElement>(null);
@@ -374,7 +387,16 @@ function NewProjectMenu() {
 
   return (
     <div ref={wrap} className="cloud-new">
-      <button className="btn btn-primary" onClick={() => setOpen((o) => !o)} aria-expanded={open} disabled={busy}>
+      <button
+        className="btn btn-primary"
+        onClick={() =>
+          atLimit
+            ? openPricing({ reason: `You have ${owned} active projects — the Free plan allows ${limit}. Upgrade to Solo for unlimited projects, or delete one you no longer need.` })
+            : setOpen((o) => !o)
+        }
+        aria-expanded={open}
+        disabled={busy}
+      >
         <IconPlus size={12} />
         {busy ? 'Creating…' : 'New project'}
         <IconChevron size={11} className={`caret ${open ? 'caret-open' : ''}`} />

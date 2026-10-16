@@ -10,6 +10,8 @@ suggestions tuned either for looks or for value.
 
 ![Template gallery: eight Indian plans with live thumbnails and estimates](docs/screenshots/templates.jpg)
 
+![A quotation generated from the plan: room-wise abstract and bill of quantities with HSN/SAC, trade units and make list](docs/screenshots/quotation.jpg)
+
 The demo is the web client running standalone. GitHub Pages serves static files only, so
 the API is not available there: the catalog, the 3D renderer and live costing all work
 from bundled data, while the suggestions panel shows its offline state. Run the backend

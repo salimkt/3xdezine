@@ -3630,3 +3630,30 @@ button.check-badge:hover {
     display: none;
   }
 }
+
+/* Client approval page boot: a light page, so no dark flash on a phone. */
+.approval-boot {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #f6f4ef;
+}
+
+/* The studio's Quote tab covers the panes (which stay mounted underneath). */
+.quote-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--topbar-height);
+  bottom: 0;
+  z-index: 30;
+  background: var(--n-1);
+  display: flex;
+  flex-direction: column;
+}
+
+.plan-modular-add {
+  display: inline-flex;
+  gap: 4px;
+}

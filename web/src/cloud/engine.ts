@@ -73,8 +73,12 @@ type Ok<T> = T & { ok: true };
 type FnName = keyof typeof CLOUD_FUNCTIONS;
 
 async function call<T extends { ok: true }>(fn: FnName, body: object): Promise<T | CallError> {
+  return callNamed<T>(CLOUD_FUNCTIONS[fn], body);
+}
+
+async function callNamed<T extends { ok: true }>(name: string, body: object): Promise<T | CallError> {
   try {
-    const { data, error } = await sb.functions.invoke(CLOUD_FUNCTIONS[fn], { body });
+    const { data, error } = await sb.functions.invoke(name, { body });
     if (!error) {
       if (data && typeof data === 'object' && (data as { ok?: unknown }).ok === false) return data as CloudError;
       return data as T;
@@ -109,6 +113,22 @@ async function must<T extends { ok: true }>(fn: FnName, body: object): Promise<O
   const r = await call<T>(fn, body);
   if (failed(r)) throw Object.assign(new Error(r.message), { code: r.code, violations: (r as CloudError).violations });
   return r as Ok<T>;
+}
+
+/**
+ * Any Edge Function by name, for callers outside this module (the business
+ * features: quotes, studio, billing). Throws an Error carrying the server's
+ * plain message and `code`, like `must`.
+ */
+export async function invokeFunction<T extends { ok: true }>(name: string, body: object): Promise<Ok<T>> {
+  const r = await callNamed<T>(name, body);
+  if (failed(r)) throw Object.assign(new Error(r.message), { code: r.code, details: r });
+  return r as Ok<T>;
+}
+
+/** The Supabase client, for PostgREST reads under row-level security. */
+export function client(): SupabaseClient {
+  return sb;
 }
 
 // ---------------------------------------------------------------------------

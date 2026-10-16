@@ -1,5 +1,7 @@
 import { Component, lazy, type ReactNode, Suspense, useLayoutEffect, useRef, useState } from 'react';
 import { CLOUD_ENABLED } from '../cloud/state';
+import { useBiz } from '../business/state';
+import { useWorkspace } from '../business/workspace';
 import { useStore, type ViewMode } from '../store';
 import { DUR, prefersReducedMotion } from '../lib/motion';
 import { PlanEditor } from './PlanEditor';
@@ -21,6 +23,10 @@ import { IconAlert } from './icons';
 const CloudRail = lazy(() => import('../cloud/ui/StudioCloud').then((m) => ({ default: m.CloudRail })));
 
 const Viewport = lazy(() => import('../three/Viewport').then((m) => ({ default: m.Viewport })));
+
+/** The Quote tab and the modular configurator: business chunks, loaded on first use. */
+const QuoteBuilder = lazy(() => import('../business/quote/QuoteBuilder'));
+const ModularPanel = lazy(() => import('../business/modular/ModularPanel'));
 
 function ViewportLoading() {
   return (
@@ -149,6 +155,8 @@ function frozenStyle(width: number | undefined) {
 export default function Studio({ hidden }: { hidden: boolean }) {
   const view = useStore((s) => s.view);
   const { layout, refs } = usePaneLayout(view);
+  const quoteOpen = useBiz((s) => s.quoteOpen);
+  const modularActive = useWorkspace((s) => s.editingModularId !== null || s.pick !== null);
 
   return (
     <div className={`app ${hidden ? 'app-hidden' : ''}`} inert={hidden} aria-hidden={hidden || undefined}>
@@ -180,6 +188,11 @@ export default function Studio({ hidden }: { hidden: boolean }) {
         )}
         <aside ref={refs.rail} className="rail">
           <Inspector />
+          {modularActive && (
+            <Suspense fallback={null}>
+              <ModularPanel />
+            </Suspense>
+          )}
           <ProposalsPanel />
           {CLOUD_ENABLED && (
             <Suspense fallback={null}>
@@ -192,6 +205,20 @@ export default function Studio({ hidden }: { hidden: boolean }) {
           <SuggestionsPanel />
         </aside>
       </main>
+      {quoteOpen && !hidden && (
+        <div className="quote-layer">
+          <Suspense
+            fallback={
+              <div className="studio-loading" role="status">
+                <div className="spinner" />
+                <span>Opening the quote…</span>
+              </div>
+            }
+          >
+            <QuoteBuilder />
+          </Suspense>
+        </div>
+      )}
       <Toast />
     </div>
   );

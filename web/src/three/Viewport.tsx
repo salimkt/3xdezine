@@ -4,6 +4,7 @@ import { Canvas, extend, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import type { Room } from '@shared/types';
 import { useStore } from '../store';
+import { useBiz } from '../business/state';
 import { planBounds, polygonArea } from '../lib/geometry';
 import { loadTextureManifest, type TextureManifest } from '../lib/materials';
 import { Building, Ground } from './Building';
@@ -797,7 +798,8 @@ export function Viewport() {
   const [manifest, setManifest] = useState<TextureManifest | null>(null);
   const rendererReady = useStore((s) => s.rendererReady);
   // Behind the home screen the studio stays mounted but must not burn the GPU.
-  const paused = useStore((s) => s.screen !== 'studio');
+  const quoteOpen = useBiz((s) => s.quoteOpen);
+  const paused = useStore((s) => s.screen !== 'studio') || quoteOpen;
   const rig = useRef<RigApi | null>(null);
   const [zoomUi, setZoomUi] = useState<ZoomUi>({ canZoomIn: true, canZoomOut: true });
 

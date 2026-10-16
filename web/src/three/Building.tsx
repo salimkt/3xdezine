@@ -21,6 +21,8 @@ import { useStore } from '../store';
 import { useDisplayProject } from '../lib/checks';
 import { introProgress, phase } from '../lib/intro';
 import { OpeningFill, PlacedGeometry } from './Parametric';
+import { ModularBoxes, VENEER_MATERIAL_ID } from './ModularBoxes';
+import { useModularItems } from '../business/workspace';
 
 type GroupRegistry = Map<string, THREE.Group>;
 const register = (registry: GroupRegistry, id: string) => (group: THREE.Group | null) => {
@@ -230,6 +232,7 @@ export function Building({ manifest }: { manifest: TextureManifest }) {
   const catalog = useStore((s) => s.catalog);
   const selection = useStore((s) => s.selection);
   const showCeilings = useStore((s) => s.render.showCeilings);
+  const modularItems = useModularItems();
 
   const floor: Floor | undefined = project.floors[0];
   const materials = useMemo(() => byId(catalog), [catalog]);
@@ -262,8 +265,10 @@ export function Building({ manifest }: { manifest: TextureManifest }) {
       if (wall.exteriorMaterialId) live.add(wall.exteriorMaterialId);
     }
     if (project.roof?.materialId) live.add(project.roof.materialId);
+    // Veneer shutters on modular units borrow this texture.
+    if (modularItems.length) live.add(VENEER_MATERIAL_ID);
     pruneMaterialCache(live);
-  }, [floor, project.roof?.materialId]);
+  }, [floor, project.roof?.materialId, modularItems.length]);
 
   const wallGroups = useRef<GroupRegistry>(new Map()).current;
   const roomGroups = useRef<GroupRegistry>(new Map()).current;
@@ -300,6 +305,8 @@ export function Building({ manifest }: { manifest: TextureManifest }) {
           registry={wallGroups}
         />
       ))}
+
+      <ModularBoxes items={modularItems} project={project} materials={materials} manifest={manifest} />
 
       <group ref={fixtures}>
       {floor.openings.map((opening) => {

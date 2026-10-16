@@ -4,6 +4,7 @@ import { getCatalog } from '../lib/api';
 import { MobileGate } from './AndroidApp';
 import { HomeScreen } from './HomeScreen';
 import { CLOUD_ENABLED } from '../cloud/state';
+import { quoteTokenFromUrl, useBiz } from '../business/state';
 
 /** Sign-in, sharing and sync UI; never requested when cloud isn't configured. */
 const CloudRoot = lazy(() => import('../cloud/ui/shell').then((m) => ({ default: m.CloudRoot })));
@@ -17,6 +18,16 @@ const CloudRoot = lazy(() => import('../cloud/ui/shell').then((m) => ({ default:
 const loadStudio = () => import('./Studio');
 const Studio = lazy(loadStudio);
 const loadViewport = () => import('../three/Viewport');
+
+/** Studio settings, rate card and plans dialogs; a chunk of their own, loaded on first open. */
+const BizDialogs = lazy(() => import('../business/BizDialogs'));
+
+/**
+ * The client approval page (`#/q/<token>`): a homeowner on a phone, often on
+ * mobile data. It renders alone — no studio prefetch, no catalogue fetch, no
+ * cloud SDK, and three.js only if they tap "View in 3D".
+ */
+const ApprovalPage = lazy(() => import('../business/approval/ApprovalPage'));
 
 function whenIdle(callback: () => void): () => void {
   const w = window as Window & {
@@ -41,6 +52,24 @@ function StudioLoading() {
 }
 
 export function App() {
+  const [quoteToken, setQuoteToken] = useState(quoteTokenFromUrl);
+  useEffect(() => {
+    const onHash = () => setQuoteToken(quoteTokenFromUrl());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  if (quoteToken) {
+    return (
+      <Suspense fallback={<div className="approval-boot" role="status"><div className="spinner" /></div>}>
+        <ApprovalPage token={quoteToken} />
+      </Suspense>
+    );
+  }
+  return <StudioApp />;
+}
+
+function StudioApp() {
+  const bizDialog = useBiz((s) => s.dialog);
   const screen = useStore((s) => s.screen);
   const projectName = useStore((s) => s.project.name);
   const setCatalog = useStore((s) => s.setCatalog);
@@ -80,6 +109,11 @@ export function App() {
         </Suspense>
       )}
       {screen === 'home' && <HomeScreen />}
+      {bizDialog && (
+        <Suspense fallback={null}>
+          <BizDialogs />
+        </Suspense>
+      )}
       {CLOUD_ENABLED && (
         <Suspense fallback={null}>
           <CloudRoot />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EditCheck, EditSuggestion, Opening, PlanEdit, Project, Room, Vec2, Wall } from '@shared/types';
 import { useStore } from '../store';
 import { polygonArea, polygonCentroid, planBounds, wallLength, wallsAtCorner } from '../lib/planMath';
@@ -11,6 +11,10 @@ import { area as fmtArea, metres } from '../lib/format';
 import { DUR, TweenSlot, easeOutCubic, lerp, prefersReducedMotion } from '../lib/motion';
 import { ZoomCluster } from './ZoomCluster';
 import { useCloud } from '../cloud/state';
+import { useModularItems, useWorkspace } from '../business/workspace';
+
+/** Modular runs on the plan; its own chunk (it prices runs with the modular engine). */
+const PlanModular = lazy(() => import('../business/modular/PlanModular'));
 
 const SNAP_M = 0.1;
 const PADDING_M = 2.2;
@@ -185,6 +189,9 @@ function clampTop(top: number, h: number) {
 
 export function PlanEditor() {
   const project = useStore((s) => s.project);
+  const modularItems = useModularItems();
+  const pick = useWorkspace((s) => s.pick);
+  const editingModularId = useWorkspace((s) => s.editingModularId);
   const catalog = useStore((s) => s.catalog);
   const selection = useStore((s) => s.select);
   const selected = useStore((s) => s.selection);
@@ -722,7 +729,15 @@ export function PlanEditor() {
         }
       }
 
-      if (g.type === 'press' && g.id === event.pointerId && event.type === 'pointerup') {
+      const picking = useWorkspace.getState().pick;
+      if (g.type === 'press' && g.id === event.pointerId && event.type === 'pointerup' && picking) {
+        // Picking walls for a kitchen or wardrobe run: a wall click toggles it, nothing else selects.
+        const t = g.target;
+        if (t.kind === 'wall') {
+          const has = picking.wallIds.includes(t.id);
+          useWorkspace.setState({ pick: { ...picking, wallIds: has ? picking.wallIds.filter((w) => w !== t.id) : [...picking.wallIds, t.id] } });
+        }
+      } else if (g.type === 'press' && g.id === event.pointerId && event.type === 'pointerup') {
         // A click, not a drag: only now does it select.
         const t = g.target;
         if (t.kind === 'room') {
@@ -862,6 +877,37 @@ export function PlanEditor() {
           'drag corners to edit'
         )}
       </span>
+      {selected.kind === 'room' && selected.id && !pick && (
+        <span className="plan-modular-add">
+          {modularItems
+            .filter((m) => m.roomId === selected.id)
+            .map((m) => (
+              <button
+                key={m.id}
+                className={`chip ${editingModularId === m.id ? 'chip-on' : ''}`}
+                onClick={() => useWorkspace.setState({ editingModularId: m.id, pick: null })}
+                title="Open the configurator for this unit"
+              >
+                Edit {m.type === 'KITCHEN' ? 'kitchen' : 'wardrobe'}
+              </button>
+            ))}
+          <button
+            className="chip"
+            onClick={() => useWorkspace.setState({ pick: { roomId: selected.id!, type: 'KITCHEN', layout: 'STRAIGHT', wallIds: [] }, editingModularId: null })}
+            title="Add a modular kitchen: pick the walls it runs along"
+          >
+            + Kitchen
+          </button>
+          <button
+            className="chip"
+            onClick={() => useWorkspace.setState({ pick: { roomId: selected.id!, type: 'WARDROBE', layout: 'STRAIGHT', wallIds: [] }, editingModularId: null })}
+            title="Add a wardrobe: pick the wall it stands against"
+          >
+            + Wardrobe
+          </button>
+        </span>
+      )}
+      {pick && <span className="plan-policy plan-policy-review">Click walls for the {pick.type === 'KITCHEN' ? 'kitchen' : 'wardrobe'} run</span>}
       <PlanCheckBadge
         onClick={() => document.getElementById('plan-check')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
       />
@@ -1184,6 +1230,12 @@ export function PlanEditor() {
               </g>
             );
           })}
+
+          {(modularItems.length > 0 || pick) && (
+            <Suspense fallback={null}>
+              <PlanModular project={project} items={modularItems} pick={pick} px={px} editingId={editingModularId} />
+            </Suspense>
+          )}
 
           {/* Padlocks on walls this level cannot move */}
           {showWallLocks &&

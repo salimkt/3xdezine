@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { AccessRole, MemberRole } from '@shared/cloud';
 import { GOOGLE_ENABLED, ROLE_LABEL, loadEngine, useCloud, type Engine } from '../state';
 import { useStore } from '../../store';
+import { PLAN_LABEL, openPricing, useBiz } from '../../business/state';
 import './cloud.css';
 
 /** Runs an engine action, loading the SDK first if this is the first cloud action. */
@@ -268,6 +269,7 @@ export function AccountDialog() {
             <small>{user.email}</small>
           </div>
         </div>
+        <PlanRow onOpen={close} />
         <label className="field">
           <span className="field-label">Display name — shown on proposals and versions</span>
           <input className="input" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
@@ -316,6 +318,28 @@ export function AccountDialog() {
         </div>
       </div>
     </Dialog>
+  );
+}
+
+function PlanRow({ onOpen }: { onOpen: () => void }) {
+  const ents = useBiz((s) => s.entitlements);
+  const plan = ents?.plan ?? 'FREE';
+  const passes = ents?.passProjectIds.length ?? 0;
+  return (
+    <div className="cloud-plan-row">
+      <span>
+        Plan <b className={`badge ${plan === 'FREE' ? 'badge-quiet' : 'badge-ok'}`}>{PLAN_LABEL[plan]}</b>
+        {passes > 0 && <small> · {passes} Project Pass{passes === 1 ? '' : 'es'}</small>}
+        {ents?.currentPeriodEnd && <small> · until {new Date(ents.currentPeriodEnd).toLocaleDateString('en-IN', { dateStyle: 'medium' })}</small>}
+      </span>
+      <span className="topbar-spacer" />
+      <button className="btn btn-small" onClick={() => (onOpen(), useBiz.setState({ dialog: 'settings' }))}>
+        Studio
+      </button>
+      <button className="btn btn-small btn-primary" onClick={() => (onOpen(), openPricing())}>
+        {plan === 'FREE' ? 'Upgrade' : 'Plans'}
+      </button>
+    </div>
   );
 }
 

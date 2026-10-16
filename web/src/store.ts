@@ -452,6 +452,8 @@ export const useStore = create<StoreState>((set, get) => ({
 
 // The working project survives a reload, so the home screen can offer it back.
 // A cloud project is saved to the cloud instead and never overwrites it.
+// The client approval page borrows the store to show a quote's plan in 3D; that plan is not the working one.
+export const localPersistence = { paused: false };
 useStore.subscribe((state, prev) => {
-  if (state.project !== prev.project && !useCloud.getState().active) saveProject(state.project);
+  if (state.project !== prev.project && !useCloud.getState().active && !localPersistence.paused) saveProject(state.project);
 });

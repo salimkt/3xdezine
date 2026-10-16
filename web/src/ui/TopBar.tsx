@@ -9,6 +9,7 @@ import { IconChevron, IconHome } from './icons';
 import { BLANK_META, loadTemplate, loadTemplateIndex } from '../lib/templates';
 import { useAnimatedNumber } from '../lib/motion';
 import { CLOUD_ENABLED, useCloud } from '../cloud/state';
+import { useBiz } from '../business/state';
 
 const TopBarCloud = lazy(() => import('../cloud/ui/StudioCloud').then((m) => ({ default: m.TopBarCloud })));
 
@@ -30,6 +31,7 @@ export function TopBar() {
   // Reset rewrites the whole plan; on a shared project only someone who may do that sees it.
   const canReset = !cloudRole || cloudRole === 'OWNER' || cloudRole === 'FULL';
   const total = useAnimatedNumber(cost.total);
+  const quoteOpen = useBiz((s) => s.quoteOpen);
 
   const [hdris, setHdris] = useState<HdriEntry[]>(EMPTY_MANIFEST.hdris);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -87,8 +89,11 @@ export function TopBar() {
         {(['2d', '3d', 'split'] as const).map((mode) => (
           <button
             key={mode}
-            className={`seg ${view === mode ? 'seg-on' : ''}`}
-            onClick={() => setView(mode)}
+            className={`seg ${view === mode && !quoteOpen ? 'seg-on' : ''}`}
+            onClick={() => {
+              setView(mode);
+              useBiz.setState({ quoteOpen: false });
+            }}
             title={
               mode === '2d'
                 ? 'Floor plan only'
@@ -100,6 +105,14 @@ export function TopBar() {
             {mode === '2d' ? 'Plan' : mode === '3d' ? '3D' : 'Split'}
           </button>
         ))}
+        <button
+          className={`seg ${quoteOpen ? 'seg-on' : ''}`}
+          onClick={() => useBiz.setState({ quoteOpen: !quoteOpen })}
+          aria-pressed={quoteOpen}
+          title="Quotation: BOQ from the plan, GST, milestones, print and approval link"
+        >
+          Quote
+        </button>
       </div>
 
       <div className="segmented">
