@@ -1,21 +1,53 @@
 # 3xDezine
 
-A house and interior design platform. Draw a floor plan in 2D, walk it in photorealistic
-3D, apply real building materials, and get a live, buffered material cost plus material
-suggestions tuned either for looks or for value.
+**Draw a home in 2D, walk it in photorealistic WebGPU 3D, and see what it will cost as you edit.**
 
 **[Live demo →](https://salimkt.github.io/3xdezine/)** · **[Android APK](https://github.com/salimkt/3xdezine/releases/download/android-latest/3xdezine.apk)**
 
 ![3xDezine studio: plan editor, WebGPU 3D view and live rupee estimate](docs/screenshots/studio.jpg)
 
-![Template gallery: eight Indian plans with live thumbnails and estimates](docs/screenshots/templates.jpg)
-
-![A quotation generated from the plan: room-wise abstract and bill of quantities with HSN/SAC, trade units and make list](docs/screenshots/quotation.jpg)
+A house and interior design platform. Draw a floor plan in 2D, walk it in photorealistic
+3D, apply real building materials, and get a live, buffered material cost plus material
+suggestions tuned either for looks or for value.
 
 The demo is the web client running standalone. GitHub Pages serves static files only, so
 the API is not available there: the catalog, the 3D renderer and live costing all work
 from bundled data, while the suggestions panel shows its offline state. Run the backend
 locally to get suggestions.
+
+## What's interesting here
+
+- **One set of pure engines, run on both sides.** Surface costing (wastage, pack
+  rounding, contingency), plan rules against the National Building Code 2016, and
+  quotations run in the browser on every edit and again on the server, from the same
+  `shared/` code. The server never trusts a total the client sends.
+- **Money is integer paise.** Quotations never use floats for money, and GST is computed
+  by place of supply (CGST + SGST within a state, IGST across states).
+- **Roles enforced server-side.** In the Supabase backend, a collaborator's edit is
+  checked by the same rules engine and by row-level security. That is covered by 136
+  pgTAP database assertions and an end-to-end scenario that signs in through the real
+  magic-link flow.
+- **Billing that tolerates retries.** Razorpay webhooks are HMAC-verified and idempotent,
+  so a redelivered event cannot double-apply.
+- **A real-time renderer on the web.** three.js r186 on WebGPU with image-based lighting,
+  AgX tone mapping, GTAO, screen-space GI and reflections, and TRAA, with a WebGL2
+  fallback.
+
+## Tech stack
+
+| Layer | Stack |
+|---|---|
+| Web | React 19, React Three Fiber, three.js r186 (WebGPU / WebGL2), Vite, TypeScript |
+| API | Fastify, Drizzle ORM, PostgreSQL 18, OpenAPI 3.1 |
+| Cloud (not yet live) | Supabase: Postgres with row-level security, 24 edge functions, magic-link auth; Razorpay billing |
+| Android | Kotlin, Jetpack Compose, SceneView / Filament |
+| Tests | `node:test` via tsx, pgTAP, Deno, JUnit; GitHub Actions |
+
+## More screenshots
+
+![Template gallery: eight Indian plans with live thumbnails and estimates](docs/screenshots/templates.jpg)
+
+![A quotation generated from the plan: room-wise abstract and bill of quantities with HSN/SAC, trade units and make list](docs/screenshots/quotation.jpg)
 
 ---
 
@@ -51,23 +83,34 @@ locally to get suggestions.
 [`ARCHITECTURE.md`](ARCHITECTURE.md) covers the design decisions and the reasoning behind
 them.
 
-## Quick start
+## Run locally
 
-Requires Node 22.12 (see `.nvmrc`) and Docker.
+Requires Node 22.12+ (see `.nvmrc`) and Docker.
 
 ```bash
 nvm use
-npm install
+npm install                      # installs the shared/ workspace
 
-# Database
+# Database: PostgreSQL 18 on localhost:5433
 docker compose up -d
 
-# Backend — http://localhost:4000, docs at /docs
+# Backend: http://localhost:4000, docs at /docs
 cd backend && npm install && npm run db:migrate && npm run db:seed && npm run dev
 
-# Web — http://localhost:5173
+# Web: http://localhost:5173 (in a second terminal, from the repo root)
 cd web && npm install && npm run dev
 ```
+
+Tests:
+
+```bash
+npm test                         # shared engines: costing, plan rules, GST, quotations
+cd backend && npm test           # API routes, suggestions, proposals
+```
+
+Together these hold 300+ unit tests. The Supabase suites (`npm run sb:test` for pgTAP,
+`npm run sb:e2e` for the end-to-end scenario) need the Supabase CLI and a local stack
+(`npm run sb:start`).
 
 Textures and HDRIs are committed, so the app renders fully on a fresh clone. To refetch
 or change resolution:
@@ -98,8 +141,8 @@ before anyone spends money against it.
 A working vertical slice, not a finished product. Known gaps:
 
 - **Accounts and sharing are built but not live.** The Supabase backend (`supabase/`)
-  and the web sign-in are complete and pass 43 database security tests and a 41-step
-  end-to-end run locally, but the public demo has no hosted Supabase project yet, so it
+  and the web sign-in are complete and covered locally by 136 pgTAP database assertions
+  (43 of them row-level-security checks) and an 81-check end-to-end scenario, but the public demo has no hosted Supabase project yet, so it
   runs signed-out and fully local. `docs/cloud.md` is the go-live checklist.
 - The roof is costed and selectable but not modelled in 3D — it would hide the
   interior, which is the part worth looking at.
